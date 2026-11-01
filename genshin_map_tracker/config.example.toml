@@ -1,0 +1,13 @@
+# Copie para config.toml e ajuste. Tudo é opcional: o que faltar usa o padrão.
+
+[capture]
+fps = 5              # 1 a 30. 5 já basta para rastrear; mais FPS = mais CPU.
+backend = "auto"     # "auto" (dxcam, cai para mss), "dxcam" ou "mss"
+output_dir = "out"
+
+[minimap]
+# Círculo do minimapa na resolução de referência 1920x1080.
+# Valores iniciais estimados; rode `gmt calibrate <print.png>` para ajustar.
+center_x = 168.0
+center_y = 125.0
+radius = 100.0
