@@ -62,10 +62,12 @@ gmt capture --seconds 30 --no-save
 Mede a CPU real, sem o custo de salvar PNG.
 
 ```
-gmt calibrate out\<data-hora>\frames\00001.png
+gmt calibrate print1.png print2.png print3.png
 ```
-Procura o contorno exato do minimapa. Se o círculo verde em `_calibrate.png` bater,
-copie `config.example.toml` para `config.toml` e cole os valores sugeridos.
+Acha o centro do minimapa pela seta do jogador, que fica sempre no centro dele.
+Use de 3 a 5 prints com o personagem virado para lados diferentes. Se o círculo
+verde em `_calibrate.png` bater, copie `config.example.toml` para `config.toml` e
+cole os valores sugeridos. Em 1920x1080 isso já vem calibrado.
 
 ```
 gmt crop caminho\do\print.png
@@ -87,7 +89,7 @@ Recorta o minimapa de qualquer print, sem o jogo aberto.
 |---|---|---|
 | `Jogo NÃO encontrado` | Jogo fechado ou título diferente | Abra o jogo; me mande o título da janela |
 | Todos os quadros pretos | Captura bloqueada em tela cheia exclusiva | `--backend dxcam`, ou use janela sem borda |
-| Círculo verde deslocado | Escala do Windows ou posição estimada | Rode `gmt calibrate` |
+| Círculo verde deslocado | Escala do Windows ou resolução diferente | Rode `gmt calibrate` com 3 a 5 prints |
 | `Pulados` alto | Jogo fora de foco | A captura pausa sozinha quando o jogo não está em foco, para poupar CPU |
 
 ## Desenvolvimento
@@ -111,7 +113,7 @@ src/gmt/
     grabber.py         laço com limite de FPS, medição de CPU, pausa fora de foco
   vision/
     regions.py         regiões relativas à resolução (base 1920x1080)
-    minimap.py         recorte, máscara circular, calibração por Hough
+    minimap.py         recorte, máscara circular, seta do jogador, calibração
 tests/                 testes automatizados
 ```
 
@@ -125,5 +127,5 @@ tests/                 testes automatizados
 
 ## Limitações atuais
 
-- A posição inicial do minimapa (centro 168,125 e raio 100 em 1080p) é estimada. Ainda precisa ser confirmada com prints reais.
-- A captura só foi testada com quadros sintéticos. A validação no Windows com o jogo depende de você.
+- Minimapa calibrado em 1920x1080 com prints reais: centro (169, 125), raio 100. As outras resoluções usam escala e ainda não foram testadas.
+- Captura validada no Windows com mss: 5 FPS e cerca de 10% de um núcleo de CPU. O dxcam, que deve gastar menos, ainda precisa ser confirmado.

@@ -21,7 +21,7 @@ def _save(path: Path, img: np.ndarray) -> None:
 
 def test_crop_command(tmp_path: Path) -> None:
     img = tmp_path / "print ção.png"  # acento no nome: precisa funcionar no Windows
-    _save(img, make_frame(1920, 1080, Circle(168, 125, 100)))
+    _save(img, make_frame(1920, 1080, Circle(169.0, 125.0, 100)))
     assert main(["crop", str(img)]) == 0
     assert (tmp_path / "print ção_minimap.png").exists()
     assert (tmp_path / "print ção_debug.png").exists()
@@ -32,7 +32,8 @@ def test_calibrate_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     _save(img, make_frame(2560, 1440, Circle(230, 160, 135)))
     assert main(["calibrate", str(img)]) == 0
     out = capsys.readouterr().out
-    assert "center_x = 172" in out  # 230 / (4/3) = 172.5
+    assert "center_x = 172.5" in out  # 230 / (4/3)
+    assert "center_y = 120.0" in out  # 160 / (4/3)
     assert (tmp_path / "shot_calibrate.png").exists()
 
 

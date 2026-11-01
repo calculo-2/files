@@ -18,7 +18,7 @@ def test_load_partial(tmp_path: Path) -> None:
     assert cfg.capture.fps == 10
     assert cfg.capture.backend == "mss"
     assert cfg.minimap.radius == 97.5
-    assert cfg.minimap.center_x == 168.0
+    assert cfg.minimap.center_x == 169.0
 
 
 @pytest.mark.parametrize(

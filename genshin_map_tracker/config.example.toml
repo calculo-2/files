@@ -7,7 +7,8 @@ output_dir = "out"
 
 [minimap]
 # Círculo do minimapa na resolução de referência 1920x1080.
-# Valores iniciais estimados; rode `gmt calibrate <print.png>` para ajustar.
-center_x = 168.0
+# Medido em prints reais 1920x1080 pela seta do jogador.
+# Para conferir/ajustar: `gmt calibrate print1.png print2.png ...`
+center_x = 169.0
 center_y = 125.0
 radius = 100.0

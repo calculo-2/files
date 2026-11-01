@@ -73,33 +73,70 @@ class DxcamBackend:
         self._last: Frame | None = None
 
     @staticmethod
-    def _open_output(dxcam: Any, target: Rect) -> tuple[Any, tuple[int, int]]:
-        """Abre a saída de vídeo (monitor) que contém o centro da janela."""
+    def _find_output(dxcam: Any, target: Rect) -> tuple[int, int, tuple[int, int]] | None:
+        """Acha (placa, saída, origem) do monitor que contém o centro da janela.
+
+        Lê a lista de monitores do dxcam sem abrir câmeras (API interna; pode mudar).
+        """
+        factory = getattr(dxcam, "__factory", None)
+        outputs = getattr(factory, "outputs", None)
+        if not outputs:
+            return None
         cx = target.left + target.width // 2
         cy = target.top + target.height // 2
-        for idx in range(8):
-            try:
-                cam = dxcam.create(output_idx=idx, output_color="BGR")
-            except Exception:  # noqa: BLE001 - dxcam levanta tipos variados ao acabar as saídas
-                break
-            if cam is None:
-                break
-            try:
-                coords = cam._output.desc.DesktopCoordinates  # API interna do dxcam
-                left, top, right, bottom = coords.left, coords.top, coords.right, coords.bottom
-            except AttributeError:
-                log.warning("dxcam: não deu para ler a posição do monitor; usando o primário.")
-                return cam, (0, 0)
-            if left <= cx < right and top <= cy < bottom:
-                log.info("dxcam: usando monitor %d (%d,%d)-(%d,%d)", idx, left, top, right, bottom)
-                return cam, (left, top)
+        for d_idx, device_outputs in enumerate(outputs):
+            for o_idx, output in enumerate(device_outputs):
+                try:
+                    output.update_desc()
+                    c = output.desc.DesktopCoordinates
+                except Exception as exc:  # noqa: BLE001 - erros COM variados
+                    log.debug("dxcam: placa %d saída %d ilegível: %r", d_idx, o_idx, exc)
+                    continue
+                log.debug(
+                    "dxcam: placa %d saída %d em (%d,%d)-(%d,%d)",
+                    d_idx, o_idx, c.left, c.top, c.right, c.bottom,
+                )  # fmt: skip
+                if c.left <= cx < c.right and c.top <= cy < c.bottom:
+                    return d_idx, o_idx, (c.left, c.top)
+        return None
+
+    @classmethod
+    def _open_output(cls, dxcam: Any, target: Rect) -> tuple[Any, tuple[int, int]]:
+        """Abre a câmera no monitor do jogo. Sem achar, tenta o monitor primário."""
+        try:
+            found = cls._find_output(dxcam, target)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("dxcam: falha ao listar monitores: %r", exc)
+            found = None
+
+        try:
+            if found is not None:
+                d_idx, o_idx, origin = found
+                cam = dxcam.create(device_idx=d_idx, output_idx=o_idx, output_color="BGR")
+                log.info("dxcam: placa %d, monitor %d, origem %s", d_idx, o_idx, origin)
+                return cam, origin
+            log.info("dxcam: monitor do jogo não identificado; usando o primário.")
+            cam = dxcam.create(output_color="BGR")
+        except Exception as exc:  # noqa: BLE001 - dxcam levanta tipos variados
+            raise CaptureError(f"dxcam não abriu a captura: {exc!r}") from exc
+
+        # No primário a origem é (0,0); confere se a janela cabe nele.
+        if target.left < 0 or target.top < 0 or target.right > cam.width:
             cam.release()
-        raise CaptureError("dxcam: nenhum monitor contém a janela do jogo.")
+            raise CaptureError("dxcam: a janela do jogo não está no monitor primário.")
+        if target.bottom > cam.height:
+            cam.release()
+            raise CaptureError("dxcam: a janela do jogo não está no monitor primário.")
+        return cam, (0, 0)
 
     def grab(self, rect: Rect) -> Frame | None:
         ox, oy = self._origin
         region = (rect.left - ox, rect.top - oy, rect.right - ox, rect.bottom - oy)
-        frame = self._camera.grab(region=region)
+        try:
+            frame = self._camera.grab(region=region)
+        except ValueError as exc:  # região fora do monitor (janela mudou de lugar)
+            log.warning("dxcam: %s", exc)
+            return None
         if frame is not None:
             self._last = np.ascontiguousarray(frame, dtype=np.uint8)
         # dxcam devolve None quando a tela não mudou; reaproveita o último quadro.

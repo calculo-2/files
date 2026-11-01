@@ -68,44 +68,57 @@ def crop_minimap(frame: Image, circle: Circle) -> Minimap:
     return Minimap(image=crop, mask=mask, circle=Circle(cx=float(r), cy=float(r), r=float(r)))
 
 
-def refine_circle(frame: Image, approx: Circle, search: float = 0.35) -> Circle | None:
-    """Procura o contorno real do minimapa perto do círculo estimado.
+# Cor da seta do jogador em HSV do OpenCV (H 0-179). Medido em prints reais: H~93, S~242, V~249.
+ARROW_HSV_LOW = (80, 150, 180)
+ARROW_HSV_HIGH = (105, 255, 255)
 
-    Usa a transformada de Hough. Retorna None se não achar um círculo plausível.
+
+@dataclass(frozen=True)
+class ArrowBlob:
+    x: float  # centroide em coordenadas do quadro
+    y: float
+    area: int  # pixels
+
+
+def find_player_arrow(frame: Image, approx: Circle, search: float = 0.3) -> ArrowBlob | None:
+    """Acha a seta ciano do jogador perto do centro estimado do minimapa.
+
+    A seta fica sempre no centro do minimapa, então seu centroide dá o centro real.
     """
     h, w = frame.shape[:2]
-    pad = int(approx.r * (1 + search))
+    pad = max(8, int(approx.r * search))
     x0, y0 = max(int(approx.cx) - pad, 0), max(int(approx.cy) - pad, 0)
-    x1, y1 = min(int(approx.cx) + pad, w), min(int(approx.cy) + pad, h)
-    roi = frame[y0:y1, x0:x1]
+    x1, y1 = min(int(approx.cx) + pad + 1, w), min(int(approx.cy) + pad + 1, h)
+    roi = frame[y0:y1, x0:x1, :3]
     if roi.size == 0:
         return None
 
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if roi.ndim == 3 else roi
-    gray = cv2.medianBlur(gray, 5)
-    found = cv2.HoughCircles(
-        gray,
-        cv2.HOUGH_GRADIENT,
-        dp=1.0,
-        minDist=approx.r,
-        param1=100,
-        param2=30,
-        minRadius=int(approx.r * (1 - search)),
-        maxRadius=int(approx.r * (1 + search)),
-    )
-    if found is None:
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, ARROW_HSV_LOW, ARROW_HSV_HIGH)
+    n, _labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
+    if n <= 1:
         return None
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    area = int(stats[idx, cv2.CC_STAT_AREA])
+    # Seta tem ~290 px com raio 100; descarta manchas pequenas demais.
+    if area < 0.01 * approx.r**2:
+        return None
+    cx, cy = centroids[idx]
+    return ArrowBlob(x=float(cx) + x0, y=float(cy) + y0, area=area)
 
-    best: Circle | None = None
-    best_dist = float("inf")
-    for cx, cy, r in found[0]:
-        c = Circle(cx=float(cx) + x0, cy=float(cy) + y0, r=float(r))
-        dist = float(np.hypot(c.cx - approx.cx, c.cy - approx.cy))
-        if dist < best_dist:
-            best, best_dist = c, dist
-    if best is None or best_dist > approx.r * search:
+
+def calibrate_center(frames: list[Image], approx: Circle) -> tuple[Circle, list[ArrowBlob]] | None:
+    """Centro do minimapa pela mediana das setas em vários quadros.
+
+    Use quadros com o personagem virado para direções diferentes: o centroide da
+    seta varia um pouco com a rotação e a mediana compensa. O raio continua o estimado.
+    """
+    blobs = [b for f in frames if (b := find_player_arrow(f, approx)) is not None]
+    if not blobs:
         return None
-    return best
+    cx = float(np.median([b.x for b in blobs]))
+    cy = float(np.median([b.y for b in blobs]))
+    return Circle(cx=cx, cy=cy, r=approx.r), blobs
 
 
 def draw_debug(frame: Image, circle: Circle) -> Image:

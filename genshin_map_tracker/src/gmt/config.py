@@ -35,7 +35,7 @@ class CaptureConfig:
 class MinimapConfig:
     """Círculo do minimapa em pixels na resolução de referência 1920x1080."""
 
-    center_x: float = 168.0
+    center_x: float = 169.0
     center_y: float = 125.0
     radius: float = 100.0
 

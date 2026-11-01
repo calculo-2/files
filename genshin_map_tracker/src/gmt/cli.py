@@ -21,7 +21,7 @@ import numpy as np
 from gmt import __version__
 from gmt.config import Config, ConfigError, load_config
 from gmt.logging_setup import setup_logging
-from gmt.vision.minimap import Image, crop_minimap, draw_debug, refine_circle
+from gmt.vision.minimap import Image, calibrate_center, crop_minimap, draw_debug
 from gmt.vision.regions import minimap_circle, to_reference
 
 log = logging.getLogger("gmt")
@@ -45,7 +45,7 @@ def _imwrite(path: Path, img: Image) -> None:
     buf.tofile(str(path))
 
 
-def cmd_find_window(_args: argparse.Namespace, _cfg: Config) -> int:
+def cmd_find_window(_args: argparse.Namespace, cfg: Config) -> int:
     from gmt.capture.window import UnsupportedPlatformError, find_game_window
 
     try:
@@ -61,6 +61,12 @@ def cmd_find_window(_args: argparse.Namespace, _cfg: Config) -> int:
     print(f"  Área de captura: {c.width}x{c.height} em ({c.left}, {c.top})")
     print(f"  Em foco: {'sim' if win.is_foreground else 'não'}")
     print(f"  Minimizado: {'sim' if win.is_minimized else 'não'}")
+
+    from gmt.capture.backends import create_backend
+
+    backend = create_backend(cfg.capture.backend, win.client)
+    print(f"  Método de captura: {backend.name}")
+    backend.close()
     return 0
 
 
@@ -138,18 +144,28 @@ def cmd_crop(args: argparse.Namespace, cfg: Config) -> int:
 
 
 def cmd_calibrate(args: argparse.Namespace, cfg: Config) -> int:
-    img = _imread(Path(args.image))
-    h, w = img.shape[:2]
+    paths = [Path(p) for p in args.images]
+    imgs = [_imread(p) for p in paths]
+    sizes = {img.shape[:2] for img in imgs}
+    if len(sizes) > 1:
+        print("Use prints da mesma resolução.")
+        return 2
+    h, w = imgs[0].shape[:2]
     approx = minimap_circle(w, h, cfg.minimap)
-    found = refine_circle(img, approx)
-    if found is None:
-        print("Não achei o contorno do minimapa automaticamente. Mantendo os valores atuais.")
+    result = calibrate_center(imgs, approx)
+    if result is None:
+        print("Não achei a seta do jogador em nenhum print. Mantendo os valores atuais.")
         return 1
+    found, blobs = result
+    print(f"Seta encontrada em {len(blobs)} de {len(imgs)} prints ({w}x{h}):")
+    for b in blobs:
+        print(f"  ({b.x:.1f}, {b.y:.1f})  {b.area} px")
     ref = to_reference(found, w, h)
-    out = Path(args.image).with_suffix("")
-    _imwrite(out.with_name(out.name + "_calibrate.png"), draw_debug(img, found))
-    print(f"Encontrado em ({found.cx:.1f}, {found.cy:.1f}) r={found.r:.1f} nesta imagem {w}x{h}.")
-    print("Confira o arquivo _calibrate.png. Se o círculo verde bater, cole no config.toml:\n")
+    out = paths[0].with_suffix("")
+    _imwrite(out.with_name(out.name + "_calibrate.png"), draw_debug(imgs[0], found))
+    shift = ((found.cx - approx.cx) ** 2 + (found.cy - approx.cy) ** 2) ** 0.5
+    print(f"Centro (mediana): ({found.cx:.1f}, {found.cy:.1f}); {shift:.1f} px do atual.")
+    print("Confira o _calibrate.png. Se o círculo verde bater, cole no config.toml:\n")
     print("[minimap]")
     print(f"center_x = {ref.center_x:.1f}")
     print(f"center_y = {ref.center_y:.1f}")
@@ -181,8 +197,10 @@ def build_parser() -> argparse.ArgumentParser:
     crop.add_argument("image")
     crop.add_argument("--out", help="prefixo dos arquivos de saída")
 
-    cal = sub.add_parser("calibrate", help="acha a posição exata do minimapa num print")
-    cal.add_argument("image")
+    cal = sub.add_parser("calibrate", help="acha o centro do minimapa pela seta do jogador")
+    cal.add_argument(
+        "images", nargs="+", help="um ou mais prints, de preferência virado para lados diferentes"
+    )
     return p
 
 
