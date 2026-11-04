@@ -12,3 +12,36 @@ output_dir = "out"
 center_x = 169.0
 center_y = 125.0
 radius = 100.0
+
+# ---------------------------------------------------------------- Fases 3 a 6
+# As seções abaixo estão comentadas: tire o "#" do começo da linha para usar.
+
+# [site]
+# url = "https://genshin-impact-map.appsample.com/pt/"
+# profile = ".chrome-gmt"   # perfil do Chrome só do gmt: faça login no site nele uma vez
+# follow = true             # o mapa do site segue a sua posição
+# min_interval = 1.0        # segundos entre movimentos do mapa (ritmo humano)
+# min_pan_px = 40           # só move o mapa se você andou isso na tela
+# zoom = 5                  # zoom fixo ao seguir (sem esta linha: mantém o seu)
+# mark_js = ""              # comando do site para marcar coletado; {id} = id do marcador
+#                           # (descoberto depois do diagnóstico do site)
+
+# Uma seção [[maps]] por camada do mapa (Teyvat, subterrâneos...).
+# [[maps]]
+# layer = "teyvat"
+# image = "mapas/teyvat.png"
+# Ou calibração por pontos de teletransporte:
+# calibration = "mapas/teyvat_calibracao.json"
+# Ou, se o mapa foi montado com `gmt tiles` (conversão exata):
+# tile_zoom = 5
+# tile_origin_x = 0
+# tile_origin_y = 0
+
+# [detect]
+# enabled = true      # detecta baú aberto / oculus pego pela tela (OCR)
+# radius = 0          # raio de busca do marcador, em unidades do site; 0 = automático
+# auto_mark = true    # false: nunca marca sozinho, só sugere
+
+# [general]
+# database = "out/progresso.db"
+# pause_hotkey = "ctrl+alt+p"

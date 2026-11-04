@@ -36,11 +36,11 @@ FixMethod = Literal["global", "local", "predicted", "lost"]
 
 @dataclass(frozen=True)
 class LocalizerConfig:
-    ratio: float = 0.75  # teste de razão de Lowe
+    ratio: float = 0.85  # teste de razão de Lowe (tolerante: a correlação confirma depois)
     min_inliers: int = 6  # pontos coerentes mínimos (com rotação ~0 e escala coerente)
     upsample: float = 2.0  # amplia o minimapa antes do SIFT: imagem pequena gera poucos pontos
     max_rotation_deg: float = 8.0  # minimapa é norte-para-cima; rotação maior = erro
-    first_fix_min_inliers: int = 8  # exigência maior enquanto a escala não foi aprendida
+    first_fix_min_inliers: int = 6  # enquanto a escala não foi aprendida
     scale: float | None = None  # px do mapa por px do minimapa; None = aprender
     min_scale: float = 0.2  # limites plausíveis da escala
     max_scale: float = 20.0

@@ -11,6 +11,11 @@ Comandos da Fase 2:
   locate        localiza prints ou minimapas salvos no mapa base
   track         rastreia a posição ao vivo e mostra no console
   site-probe    abre o site do mapa e salva um relatório técnico (Fase 3)
+
+Fases 3 a 6 (ver cli_run.py):
+  run           app completo: rastreia, segue no site e marca coletas
+  diagnostico   teste único que junta tudo num zip
+  import-markers, progress, detect-test, tiles
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -352,10 +358,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", default="out/site_probe")
     sp.add_argument("--profile", default=".chrome-gmt", help="perfil do Chrome só do gmt")
     sp.add_argument("--wait", type=float, default=15.0, help="segundos para a página carregar")
+
+    from gmt.cli_run import register
+
+    COMMANDS.update(register(sub))
     return p
 
 
-COMMANDS = {
+COMMANDS: dict[str, Callable[[argparse.Namespace, Config], int]] = {
     "find-window": cmd_find_window,
     "capture": cmd_capture,
     "crop": cmd_crop,

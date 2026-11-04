@@ -1,0 +1,180 @@
+"""Loop principal com mapa sintético, navegador falso e detector falso."""
+
+from __future__ import annotations
+
+import io
+
+import numpy as np
+import pytest
+
+from gmt.app import App, AppOptions, CalibrationConverter, StatusConsole, TileConverter, TileLayer
+from gmt.config import MinimapConfig
+from gmt.data.markers import Marker, MarkerStore
+from gmt.detect.events import CollectEvent
+from gmt.geo.calibration import Calibration, RefPoint
+from gmt.localization.localizer import Localizer
+from gmt.localization.mapindex import MapIndex
+
+from .synthetic import make_game_frame, make_map
+
+
+class FakeBrowser:
+    def __init__(self, can_mark: bool = False) -> None:
+        self.calls: list[tuple] = []  # type: ignore[type-arg]
+        self.can_mark = can_mark
+
+    def follow(self, lat: float, lng: float, force: bool = False) -> bool:
+        self.calls.append(("follow", lat, lng))
+        return True
+
+    def show_player(self, lat: float, lng: float, confident: bool = True) -> None:
+        self.calls.append(("player", lat, lng, confident))
+
+    def highlight(self, lat: float, lng: float, label: str = "", seconds: float = 20.0) -> None:
+        self.calls.append(("highlight", lat, lng, label))
+
+    def mark(self, marker_id: str) -> bool:
+        self.calls.append(("mark", marker_id))
+        return self.can_mark
+
+    def unproject(self, x: float, y: float, zoom: int) -> tuple[float, float]:
+        return (-y / 2**zoom, x / 2**zoom)
+
+
+class FakeDetector:
+    def __init__(self, at: dict[int, CollectEvent]) -> None:
+        self.at = at
+        self.n = 0
+
+    def update(self, frame: np.ndarray, t: float) -> list[CollectEvent]:
+        self.n += 1
+        e = self.at.get(self.n)
+        return [e] if e else []
+
+
+@pytest.fixture(scope="module")
+def world() -> np.ndarray:
+    return make_map(2400, seed=0)
+
+
+@pytest.fixture(scope="module")
+def index(world: np.ndarray) -> MapIndex:
+    return MapIndex.build("teyvat", world)
+
+
+def site_of(x: float, y: float) -> tuple[float, float]:
+    """Site de exemplo: lng = x/4, lat = -y/4 (estilo Leaflet CRS.Simple)."""
+    return x / 4, -y / 4
+
+
+def converter() -> CalibrationConverter:
+    pts = [RefPoint(f"p{i}", (x, y), site_of(x, y)) for i, (x, y) in enumerate(
+        [(0, 0), (2400, 0), (0, 2400), (1200, 1300)])]  # fmt: skip
+    cal = Calibration("teyvat", pts)
+    cal.fit()
+    return CalibrationConverter({"teyvat": cal})
+
+
+def run_path(app: App, world: np.ndarray, n: int = 12) -> list:  # type: ignore[type-arg]
+    fixes = []
+    for i in range(n):
+        x, y = 1000.0 + 6 * i, 1000.0
+        fixes.append(app.step(make_game_frame(world, x, y, seed=700 + i), i * 0.2))
+    return fixes
+
+
+def test_follows_and_shows_player(world: np.ndarray, index: MapIndex) -> None:
+    browser = FakeBrowser()
+    out = io.StringIO()
+    app = App(Localizer([index]), converter(), StatusConsole(out), MinimapConfig(169, 125, 100),
+              browser=browser)  # fmt: skip
+    fixes = run_path(app, world)
+    assert sum(f.ok for f in fixes) >= 10
+    follows = [c for c in browser.calls if c[0] == "follow"]
+    assert follows
+    lat, lng = follows[-1][1:]
+    assert (lng, lat) == pytest.approx(site_of(1000 + 6 * 11, 1000), abs=1.5)
+    assert "posição: teyvat" in out.getvalue()
+
+
+def test_chest_event_marks_single_candidate(world: np.ndarray, index: MapIndex) -> None:
+    store = MarkerStore(":memory:")
+    lng, lat = site_of(1060, 1002)
+    store.upsert(
+        [Marker("bau-1", "chest", "teyvat", lng, lat), Marker("bau-far", "chest", "teyvat", 0, 0)]
+    )
+    browser = FakeBrowser(can_mark=True)
+    det = FakeDetector({11: CollectEvent("chest", True, 0.0, ("EXP de Aventura",))})
+    console = StatusConsole(io.StringIO())
+    app = App(
+        Localizer([index]),
+        converter(),
+        console,
+        MinimapConfig(169, 125, 100),
+        browser=browser,
+        store=store,
+        detector=det,
+        options=AppOptions(radius=10),
+    )
+    run_path(app, world)
+    assert store.found_ids() == {"bau-1"}
+    assert ("mark", "bau-1") in browser.calls
+    assert any("bau-1 marcado no site" in line for line in console.lines)
+
+
+def test_ambiguous_event_only_suggests(world: np.ndarray, index: MapIndex) -> None:
+    store = MarkerStore(":memory:")
+    a, b = site_of(1060, 1000), site_of(1064, 1000)
+    store.upsert([Marker("a", "chest", "teyvat", *a), Marker("b", "chest", "teyvat", *b)])
+    browser = FakeBrowser()
+    det = FakeDetector({11: CollectEvent("chest", True, 0.0, ("Mora",))})
+    console = StatusConsole(io.StringIO())
+    app = App(
+        Localizer([index]),
+        converter(),
+        console,
+        MinimapConfig(169, 125, 100),
+        browser=browser,
+        store=store,
+        detector=det,
+        options=AppOptions(radius=10),
+    )
+    run_path(app, world)
+    assert store.found_ids() == set()
+    assert len([c for c in browser.calls if c[0] == "highlight"]) == 2
+    assert any("confirme no site" in line for line in console.lines)
+
+
+def test_uncertain_event_never_auto_marks(world: np.ndarray, index: MapIndex) -> None:
+    store = MarkerStore(":memory:")
+    store.upsert([Marker("bau-1", "chest", "teyvat", *site_of(1060, 1000))])
+    det = FakeDetector({11: CollectEvent("chest", False, 0.0, ("Mora",))})
+    app = App(
+        Localizer([index]),
+        converter(),
+        StatusConsole(io.StringIO()),
+        MinimapConfig(169, 125, 100),
+        browser=FakeBrowser(),
+        store=store,
+        detector=det,
+        options=AppOptions(radius=10),
+    )
+    run_path(app, world)
+    assert store.found_ids() == set()
+
+
+def test_pause_skips_frames(world: np.ndarray, index: MapIndex) -> None:
+    browser = FakeBrowser()
+    app = App(Localizer([index]), converter(), StatusConsole(io.StringIO()),
+              MinimapConfig(169, 125, 100), browser=browser)  # fmt: skip
+    app.toggle_pause()
+    assert app.step(make_game_frame(world, 1000, 1000), 0.0) is None
+    assert browser.calls == []
+    app.toggle_pause()
+    assert app.step(make_game_frame(world, 1000, 1000), 1.0) is not None
+
+
+def test_auto_radius_and_tile_converter() -> None:
+    conv = TileConverter(FakeBrowser(), {"teyvat": TileLayer(zoom=2, origin_x=100, origin_y=40)})
+    assert conv.to_site("teyvat", 0, 0) == pytest.approx((-10.0, 25.0))
+    assert conv.to_site("outra", 0, 0) is None

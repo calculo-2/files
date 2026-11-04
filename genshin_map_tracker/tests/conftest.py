@@ -37,6 +37,12 @@ def draw_arrow(frame: np.ndarray, cx: float, cy: float, r: float, angle: float =
     cv2.fillPoly(frame, [np.rint(arr * 16).astype(np.int32)], ARROW_BGR, cv2.LINE_AA, shift=4)
 
 
+@pytest.fixture(autouse=True)
+def deterministic_opencv() -> None:
+    """O índice FLANN usa números aleatórios; fixa a semente para testes repetíveis."""
+    cv2.setRNGSeed(0)
+
+
 @pytest.fixture
 def frame_1080p() -> tuple[np.ndarray, Circle]:
     circle = Circle(cx=169.0, cy=125.0, r=100)

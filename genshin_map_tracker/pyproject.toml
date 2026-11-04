@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 web = ["playwright>=1.45"]
+ocr = ["rapidocr_onnxruntime>=1.2"]
 dev = ["pytest>=8", "ruff>=0.4", "mypy>=1.10"]
 
 [project.scripts]

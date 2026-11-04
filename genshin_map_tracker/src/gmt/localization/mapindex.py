@@ -20,14 +20,14 @@ log = logging.getLogger(__name__)
 
 Gray = NDArray[np.uint8]
 
-INDEX_VERSION = 1
+INDEX_VERSION = 2
 TILE = 2048
 TILE_OVERLAP = 64
 
 
 def make_detector(nfeatures: int = 0) -> Any:
     # SIFT: invariante a escala e brilho; o minimapa e o mapa têm a mesma arte.
-    return cv2.SIFT_create(nfeatures=nfeatures, contrastThreshold=0.02)  # type: ignore[attr-defined]
+    return cv2.SIFT_create(nfeatures=nfeatures, contrastThreshold=0.01)  # type: ignore[attr-defined]
 
 
 def to_gray(img: NDArray[np.uint8]) -> Gray:

@@ -55,6 +55,18 @@ def make_minimap(
     noise: float = 3.0,
 ) -> Minimap:
     """Minimapa centrado em (x, y) do mapa; `scale` = px do mapa por px do minimapa."""
+    return crop_minimap(make_game_frame(world, x, y, scale, seed, noise), MINIMAP_CIRCLE)
+
+
+def make_game_frame(
+    world: np.ndarray,
+    x: float,
+    y: float,
+    scale: float = 2.0,
+    seed: int = 0,
+    noise: float = 3.0,
+) -> np.ndarray:
+    """Quadro 1920x1080 "do jogo" com o minimapa centrado em (x, y) do mapa."""
     rng = np.random.default_rng(seed)
     r = MINIMAP_CIRCLE.r
     size = int(2 * r + 1)
@@ -77,4 +89,4 @@ def make_minimap(
     cv2.circle(circle_mask, (int(r), int(r)), int(r), 255, -1)
     roi = frame[y0 : y0 + size, x0 : x0 + size]
     roi[circle_mask > 0] = disc[circle_mask > 0]
-    return crop_minimap(frame, c)
+    return frame
