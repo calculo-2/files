@@ -149,3 +149,46 @@ def test_follow_centers_in_visible_area(tmp_path: Path) -> None:
             assert x == pytest.approx(300 + (1000 - 300) / 2, abs=2)
         finally:
             b.close()
+
+
+def test_floating_controls(tmp_path: Path) -> None:
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "index.html").write_text(PAGE, encoding="utf-8")
+    with serve(site) as base:
+        cfg = BrowserConfig(
+            url=f"{base}/index.html",
+            profile=tmp_path / "p",
+            headless=True,
+            executable_path=CHROMIUM,
+            animate=False,
+            min_interval=0,
+            load_timeout=15,
+            compact=True,
+            window=(0, 0, 900, 700),
+        )
+        b = MapBrowser(cfg)
+        try:
+            b.open()
+            page = b._page
+            assert page.inner_text("#gmt-follow") == "Soltar"
+            b.show_player(-10.0, 20.0)
+            b.set_status("Posição: teyvat", True)
+            assert page.inner_text("#gmt-status") == "Posição: teyvat"
+            # Arrastar o mapa solta o "seguir"; o app para de mover o mapa.
+            page.evaluate("() => window.__gmt.map().fire('dragstart')")
+            assert page.inner_text("#gmt-follow") == "Seguir-me"
+            assert not b.following
+            assert not b.follow(-60.0, 90.0)
+            # "Seguir-me" volta a seguir e centraliza no jogador.
+            page.click("#gmt-follow")
+            assert b.following
+            time.sleep(0.6)
+            c = b.state()
+            assert (c["lat"], c["lng"]) == pytest.approx((-10.0, 20.0), abs=0.5)
+            zoom = c["zoom"]
+            page.click("#gmt-zin")
+            time.sleep(0.4)
+            assert b.state()["zoom"] == zoom + 1
+        finally:
+            b.close()

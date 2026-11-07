@@ -48,6 +48,23 @@ tela do jogo ─► minimapa ─► posição no mapa base ─► coordenada do 
 | 5 | Detecção de coleta por OCR (RapidOCR) + regra de decisão | OCR testado em texto PT-BR e no seu print. **Faltam as regiões e os textos reais.** |
 | 6 | `gmt run`, janela de status, atalho de pausa, `.bat`, diagnóstico | Feita. O executável (PyInstaller) ficou para depois (ver AVALIACAO.md). |
 
+## Janela do mapa
+
+O mapa do appsample abre numa janela de aplicativo (sem abas nem barra de endereço), com um
+painel do gmt no canto de baixo à direita:
+
+- **Seguir-me / Soltar:** com "Seguir-me", o mapa acompanha você. Arrastar o mapa com o mouse
+  solta automaticamente, para você olhar em volta; clique em "Seguir-me" para voltar.
+- **+ e −:** zoom (a rodinha do mouse também funciona e não solta o mapa).
+- **Status:** verde com a posição encontrada, vermelho quando ela se perde.
+
+Para escolher onde a janela abre (ex.: no 2º monitor), use `window = [x, y, largura, altura]`
+na seção `[site]` do `config.toml`. A barra lateral do site pode ser recolhida no botão "<" do
+próprio site; o app centraliza na parte visível de qualquer jeito.
+
+A janela não fica "sempre por cima": isso a colocaria por cima do jogo (overlay), que as regras
+do projeto proíbem.
+
 ## Janela de status
 
 O console do `iniciar.bat` mostra cada comando enviado ao mapa e a posição a cada 2 s. Tudo

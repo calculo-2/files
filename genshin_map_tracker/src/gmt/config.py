@@ -55,6 +55,9 @@ class SiteConfig:
     min_pan_px: float = 40.0
     zoom: int | None = None
     mark_js: str | None = None  # comando JS do site para marcar coletado; {id} = id do marcador
+    compact: bool = True  # janela de aplicativo (sem abas/endereço), boa para o 2º monitor
+    window: tuple[int, int, int, int] | None = None  # x, y, largura, altura da janela do mapa
+    controls: bool = True  # painel flutuante: Seguir-me/Soltar, zoom, status
 
 
 @dataclass(frozen=True)
@@ -92,6 +95,16 @@ class Config:
     detect: DetectConfig = field(default_factory=DetectConfig)
     database: Path = Path("out/progresso.db")
     pause_hotkey: str = "ctrl+alt+p"
+
+
+def _window(value: Any) -> tuple[int, int, int, int] | None:
+    """[x, y, largura, altura] -> tupla; None se ausente."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 4:
+        raise ConfigError("site.window deve ser [x, y, largura, altura]")
+    x, y, w, h = (int(v) for v in value)
+    return x, y, w, h
 
 
 def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
@@ -133,6 +146,9 @@ def load_config(path: Path | None = None) -> Config:
             min_pan_px=float(site_d.get("min_pan_px", SiteConfig.min_pan_px)),
             zoom=int(site_d["zoom"]) if "zoom" in site_d else None,
             mark_js=site_d.get("mark_js"),
+            compact=bool(site_d.get("compact", True)),
+            window=_window(site_d.get("window")),
+            controls=bool(site_d.get("controls", True)),
         )
         raw_maps = data.get("maps", [])
         if not isinstance(raw_maps, list):

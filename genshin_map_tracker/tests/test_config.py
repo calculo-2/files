@@ -97,3 +97,14 @@ def test_hotkey_parsing() -> None:
     assert parse_hotkey("Shift+F9") == (0x0004, 0x78)
     with pytest.raises(HotkeyError):
         parse_hotkey("ctrl+banana")
+
+
+def test_site_window(tmp_path: Path) -> None:
+    p = tmp_path / "config.toml"
+    p.write_text("[site]\ncompact = false\nwindow = [1920, 0, 900, 1000]\n", "utf-8")
+    cfg = load_config(p)
+    assert cfg.site.window == (1920, 0, 900, 1000) and cfg.site.compact is False
+    assert load_config(tmp_path / "nada.toml").site.compact is True
+    p.write_text("[site]\nwindow = [1, 2]\n", "utf-8")
+    with pytest.raises(ConfigError):
+        load_config(p)

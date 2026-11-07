@@ -196,6 +196,7 @@ class App:
         self.paused = threading.Event()
         self._site_types: dict[str, tuple[str, ...]] | None = None
         self._lost_saved = 0
+        self._panel_t = -1e9
         self.last_fix: Fix | None = None
         self.last_site: tuple[float, float] | None = None
         self._was_lost = False
@@ -240,7 +241,19 @@ class App:
                 self._handle_event(event, fix, site, mm.circle.r)
 
         self.console.status(fix, site, t)
+        self._panel_status(fix, t)
         return fix
+
+    def _panel_status(self, fix: Fix, t: float) -> None:
+        """Status no painel flutuante do mapa (no máximo 1x por segundo)."""
+        setter = getattr(self.browser, "set_status", None)
+        if setter is None or t - self._panel_t < 1.0:
+            return
+        self._panel_t = t
+        if fix.ok:
+            setter(f"Posição: {fix.layer} · confiança {fix.confidence:.2f}", True)
+        else:
+            setter("Posição perdida: procurando...", False)
 
     def _save_lost(self, frame: Image, mm: object) -> None:
         """Guarda o quadro e o minimapa de quando a posição se perdeu (para diagnóstico)."""

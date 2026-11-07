@@ -60,6 +60,7 @@ FOLLOW_JS = r"""
 ([lat, lng, zoom, minPx, animate]) => {
   const m = window.__gmt && window.__gmt.map();
   if (!m) return {ok: false, reason: 'mapa não encontrado'};
+  if (window.__gmt.follow === false) return {ok: true, moved: false, paused: true};
   const box = m.getContainer().getBoundingClientRect();
   // Painel (barra lateral) por cima da borda esquerda do mapa: mede a largura dele para
   // centralizar na área que a pessoa realmente vê.
@@ -97,6 +98,60 @@ PLAYER_JS = r"""
   }
   G.player.setLatLng([lat, lng]);
   G.player.setStyle({fillColor: color});
+  return true;
+}
+"""
+
+# Painel flutuante do gmt dentro da página do mapa: seguir/soltar, centralizar, zoom e
+# status. Arrastar o mapa com o mouse solta o "seguir" (a pessoa quer olhar em volta).
+CONTROLS_JS = r"""
+() => {
+  const G = window.__gmt; const m = G && G.map();
+  if (!m) return false;
+  if (G.follow === undefined) G.follow = true;
+  let box = document.getElementById('gmt-panel');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'gmt-panel';
+    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:100000;display:flex;' +
+      'flex-direction:column;gap:6px;padding:8px;border-radius:10px;font:13px sans-serif;' +
+      'background:rgba(20,24,32,.88);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.4)';
+    box.innerHTML =
+      '<div id="gmt-status" style="opacity:.85">gmt: aguardando posição</div>' +
+      '<div style="display:flex;gap:6px">' +
+      '<button id="gmt-follow" style="flex:1;padding:6px 10px;border:0;' +
+      'border-radius:6px"></button>' +
+      '<button id="gmt-zin" style="width:34px">+</button>' +
+      '<button id="gmt-zout" style="width:34px">−</button></div>';
+    document.body.appendChild(box);
+    // Um botão só: "Seguir-me" (centraliza em você e segue) / "Soltar" (para de seguir).
+    const paint = () => {
+      const b = document.getElementById('gmt-follow');
+      b.textContent = G.follow ? 'Soltar' : 'Seguir-me';
+      b.title = G.follow ? 'O mapa está seguindo você' : 'O mapa está solto';
+      b.style.background = G.follow ? '#555' : '#1e90ff';
+      b.style.color = '#fff';
+    };
+    G.setFollow = (on) => {
+      G.follow = on; paint();
+      if (on && G.player) m.panTo(G.player.getLatLng());
+    };
+    document.getElementById('gmt-follow').onclick = () => G.setFollow(!G.follow);
+    document.getElementById('gmt-zin').onclick = () => m.zoomIn();
+    document.getElementById('gmt-zout').onclick = () => m.zoomOut();
+    m.on('dragstart', () => G.setFollow(false));
+    paint();
+  }
+  return true;
+}
+"""
+
+STATUS_JS = r"""
+([text, ok]) => {
+  const el = document.getElementById('gmt-status');
+  if (!el) return false;
+  el.textContent = text;
+  el.style.color = ok ? '#9fe29f' : '#ffb3b3';
   return true;
 }
 """
@@ -232,6 +287,9 @@ class BrowserConfig:
     executable_path: str | None = None
     mark_js: str | None = None  # JS específico do site para marcar como coletado: usa {id}
     load_timeout: float = 45.0
+    compact: bool = False  # janela de aplicativo: sem abas nem barra de endereço
+    window: tuple[int, int, int, int] | None = None  # x, y, largura, altura (tela inteira)
+    controls: bool = True  # painel flutuante do gmt dentro do mapa
 
 
 class MapBrowser:
@@ -254,7 +312,13 @@ class MapBrowser:
 
         cfg = self.config
         self._pw = sync_playwright().start()
-        opts: dict[str, Any] = {"headless": cfg.headless, "no_viewport": True}
+        args: list[str] = []
+        if cfg.compact:
+            args.append(f"--app={cfg.url}")
+        if cfg.window is not None:
+            x, y, w, h = cfg.window
+            args += [f"--window-position={x},{y}", f"--window-size={w},{h}"]
+        opts: dict[str, Any] = {"headless": cfg.headless, "no_viewport": True, "args": args}
         if cfg.executable_path:
             self._ctx = self._pw.chromium.launch_persistent_context(
                 str(cfg.profile), executable_path=cfg.executable_path, **opts
@@ -268,7 +332,7 @@ class MapBrowser:
                 log.info("Chrome não encontrado; usando o Chromium do Playwright.")
                 self._ctx = self._pw.chromium.launch_persistent_context(str(cfg.profile), **opts)
         self._ctx.add_init_script(HOOK_JS)
-        self._page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+        self._page = self._pick_page()
         self._say(f"abrir {cfg.url}")
         self._page.goto(cfg.url, wait_until="domcontentloaded", timeout=60_000)
 
@@ -280,11 +344,29 @@ class MapBrowser:
                 break
             time.sleep(0.5)
         self.map_found = bool(state.get("found"))
+        if self.map_found and cfg.controls:
+            self._eval(CONTROLS_JS)
         if self.map_found:
             self._say(f"mapa encontrado (zoom {state.get('zoom')})")
         else:
             self._say(f"mapa NÃO encontrado na página: {state}")
         return state
+
+    def _pick_page(self) -> Any:
+        """Escolhe a aba do mapa. No modo aplicativo o Chrome pode abrir também uma aba em
+        branco; ela é fechada para sobrar só a janela do mapa."""
+        pages = list(self._ctx.pages)
+        if self.config.compact:
+            time.sleep(1.0)  # dá tempo da janela de aplicativo aparecer
+            pages = list(self._ctx.pages)
+            site = [p for p in pages if not p.url.startswith("about:")]
+            if site:
+                for extra in pages:
+                    if extra not in site[:1]:
+                        with contextlib.suppress(Exception):
+                            extra.close()
+                return site[0]
+        return pages[0] if pages else self._ctx.new_page()
 
     def close(self) -> None:
         for obj, meth in ((self._ctx, "close"), (self._pw, "stop")):
@@ -316,6 +398,15 @@ class MapBrowser:
 
     def show_player(self, lat: float, lng: float, confident: bool = True) -> None:
         self._eval(PLAYER_JS, [lat, lng, "#1e90ff" if confident else "#999999"])
+
+    def set_status(self, text: str, ok: bool = True) -> None:
+        """Texto de status no painel flutuante (recria o painel se a página recarregou)."""
+        if self.config.controls and not self._eval(STATUS_JS, [text, ok]):
+            self._eval(CONTROLS_JS)
+
+    @property
+    def following(self) -> bool:
+        return self._eval("() => window.__gmt ? window.__gmt.follow !== false : true") is not False
 
     def highlight(self, lat: float, lng: float, label: str = "", seconds: float = 20.0) -> None:
         if self._eval(HIGHLIGHT_JS, [lat, lng, label, seconds]):

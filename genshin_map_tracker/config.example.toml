@@ -23,6 +23,9 @@ radius = 100.0
 # min_interval = 1.0        # segundos entre movimentos do mapa (ritmo humano)
 # min_pan_px = 40           # só move o mapa se você andou isso na tela
 # zoom = 5                  # zoom fixo ao seguir (sem esta linha: mantém o seu)
+# compact = true            # janela de aplicativo, sem abas nem barra de endereço
+# window = [1920, 0, 900, 1000]  # x, y, largura, altura (x=1920: começo do 2º monitor)
+# controls = true           # painel: Seguir-me/Soltar, zoom e status
 # mark_js = ""              # comando do site para marcar coletado; {id} = id do marcador
 #                           # (descoberto depois do diagnóstico do site)
 

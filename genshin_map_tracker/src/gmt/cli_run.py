@@ -68,7 +68,10 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
                 min_pan_px=s.min_pan_px,
                 zoom=s.zoom,
                 mark_js=s.mark_js,
-            ),  # fmt: skip
+                compact=s.compact,
+                window=s.window,
+                controls=s.controls,
+            ),
             sink=console,
         )
         try:
