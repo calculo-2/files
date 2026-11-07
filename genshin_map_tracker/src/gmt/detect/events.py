@@ -122,6 +122,8 @@ OCULUS_WORDS = {
     "dendroculus": ("dendroculus", "dendroculo"),
     "hydroculus": ("hydroculus", "hidroculo", "hydroculo"),
     "pyroculus": ("pyroculus", "piroculo", "pyroculo"),
+    "cryoculus": ("cryoculus", "crioculo", "cryoculo"),
+    "lunoculus": ("lunoculus", "lunoculo"),
 }
 
 

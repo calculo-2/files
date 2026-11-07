@@ -16,9 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TextIO
 
-from gmt.data.markers import MarkerStore
+from gmt.data.markers import Marker, MarkerStore
 from gmt.detect.events import CollectDetector, CollectEvent
-from gmt.detect.resolver import ResolverConfig, resolve
+from gmt.detect.resolver import ResolverConfig, decide, kinds_for_event, resolve
 from gmt.geo.calibration import Calibration
 from gmt.localization.localizer import Fix, Localizer
 from gmt.vision.minimap import Image, crop_minimap
@@ -115,10 +115,15 @@ class TileConverter:
         self.layers = layers
 
     def to_site(self, layer: str, x: float, y: float) -> tuple[float, float] | None:
+        g = self.global_px(layer, x, y)
+        return None if g is None else self.browser.unproject(*g)
+
+    def global_px(self, layer: str, x: float, y: float) -> tuple[float, float, int] | None:
+        """Pixel do mapa base -> pixel global do Leaflet (x, y, zoom)."""
         tl = self.layers.get(layer)
         if tl is None:
             return None
-        return self.browser.unproject(x + tl.origin_x, y + tl.origin_y, tl.zoom)
+        return x + tl.origin_x, y + tl.origin_y, tl.zoom
 
 
 class ChainConverter:
@@ -130,6 +135,14 @@ class ChainConverter:
             out = c.to_site(layer, x, y)
             if out is not None:
                 return out
+        return None
+
+    def global_px(self, layer: str, x: float, y: float) -> tuple[float, float, int] | None:
+        for c in self.converters:
+            fn = getattr(c, "global_px", None)
+            out = fn(layer, x, y) if fn is not None else None
+            if out is not None:
+                return out  # type: ignore[no-any-return]
         return None
 
 
@@ -179,6 +192,7 @@ class App:
         self.detector = detector
         self.options = options or AppOptions()
         self.paused = threading.Event()
+        self._site_types: dict[str, tuple[str, ...]] | None = None
         self.last_fix: Fix | None = None
         self.last_site: tuple[float, float] | None = None
         self._was_lost = False
@@ -241,6 +255,8 @@ class App:
         name = EVENT_NAMES.get(event.kind, event.kind)
         certainty = "" if event.certain else " (indício fraco)"
         self.console.info(f"coleta detectada: {name}{certainty} <- {' | '.join(event.evidence)}")
+        if self._handle_with_site_markers(event, fix, minimap_r, name):
+            return
         if self.store is None or site is None or fix.layer is None:
             self.console.action(f"{name}: posição desconhecida; marque no site manualmente")
             return
@@ -267,6 +283,57 @@ class App:
         if self.browser is not None:
             for i, (m, _d) in enumerate(res.candidates, 1):
                 self.browser.highlight(m.y, m.x, f"{name}? ({i})")
+
+    def _handle_with_site_markers(
+        self, event: CollectEvent, fix: Fix, minimap_r: float, name: str
+    ) -> bool:
+        """Usa os marcadores do próprio site (appsample). False se não der para usar."""
+        nearby = getattr(self.browser, "nearby_site_markers", None)
+        global_px = getattr(self.converter, "global_px", None)
+        if nearby is None or global_px is None or not fix.ok or fix.layer is None:
+            return False
+        assert fix.x is not None and fix.y is not None and self.browser is not None
+        g = global_px(fix.layer, fix.x, fix.y)
+        if g is None:
+            return False
+        gx, gy, zoom = g
+        if self._site_types is None:
+            self._site_types = self.browser.site_categories()  # type: ignore[attr-defined]
+        types = [t for k in kinds_for_event(event.kind) for t in self._site_types.get(k, ())]
+        radius = (
+            self.options.radius or minimap_r * (fix.scale or 1.0) * self.options.radius_fraction
+        )
+        found = nearby(gx, gy, zoom, radius, types)
+        if found is None:
+            return False  # tabela do site indisponível: usa o banco local
+        pending = [m for m in found if not m.found]
+        conf = fix.confidence if event.certain else 0.0
+        decision, reason = decide(
+            [m.distance for m in pending], ResolverConfig(radius=radius), conf
+        )
+        if decision == "none":
+            self.console.action(f"{name}: nenhum marcador pendente por perto no site ({reason})")
+            return True
+        if decision == "mark" and self.options.auto_mark:
+            target = pending[0]
+            result = self.browser.mark_found_ui(target.id)  # type: ignore[attr-defined]
+            msg = {
+                "marked": "marcado no site",
+                "already": "já estava marcado",
+                "need_login": "o site pediu login (entre na sua conta no Chrome do gmt)",
+            }.get(result, f"não deu para marcar ({result}); marque no site")
+            self.console.action(f"{name} {target.id}: {msg} ({reason})")
+            if self.store is not None and result in ("marked", "already"):
+                self.store.upsert([Marker(target.id, event.kind, fix.layer, target.x, target.y)])
+                self.store.mark_found(target.id, how="auto")
+            return True
+        self.console.action(f"{name}: confirme no site qual foi ({reason})")
+        unproject = getattr(self.browser, "unproject", None)
+        for i, m in enumerate(pending[:3], 1):
+            ll = unproject(m.x, m.y, zoom) if unproject is not None else None
+            if ll is not None:
+                self.browser.highlight(ll[0], ll[1], f"{name}? ({i})")
+        return True
 
     # ---------------------------------------------------------------- loop
 

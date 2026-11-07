@@ -237,6 +237,32 @@ def cmd_tiles(args: argparse.Namespace, _cfg: Config) -> int:
     return 0
 
 
+# --------------------------------------------------------- preparar-mapa
+
+
+def cmd_prepare_map(args: argparse.Namespace, _cfg: Config) -> int:
+    from gmt.web.prepare import add_to_config, build_map, plan_map
+    from gmt.web.siteconfig import SiteConfigError
+
+    try:
+        plan = plan_map(args.mapa, args.zoom, Path(args.out))
+    except (SiteConfigError, OSError) as exc:
+        log.error("Não deu para ler o site do mapa: %s", exc)
+        return 2
+    minutes = plan.job.count * (args.delay + 0.5) / 60
+    print(f"Mapa: {plan.summary}")
+    print(f"Tempo estimado: ~{minutes:.0f} min (ritmo calmo, como navegar no mapa).")
+    print("Os tiles ficam só no seu PC, para uso pessoal.")
+    if not args.yes and input("Continuar? [s/N] ").strip().lower() not in ("s", "sim", "y"):
+        print("Cancelado.")
+        return 0
+    meta = build_map(plan, Path(args.cache), delay=args.delay)
+    config = Path(args.config) if args.config else Path("config.toml")
+    if add_to_config(config, plan.site_map.key, plan.image, meta):
+        print(f"Camada '{plan.site_map.key}' adicionada em {config}.")
+    return 0
+
+
 # -------------------------------------------------------------- parsers
 
 
@@ -270,6 +296,15 @@ def register(sub: Any) -> dict[str, Any]:
     tl.add_argument("--yes", action="store_true", help="confirma o download")
 
     from gmt.diagnostics import cmd_diagnostico
+    from gmt.web.siteconfig import MAP_PATHS
+
+    pm = sub.add_parser("preparar-mapa", help="monta o mapa base com os tiles do site (uma vez)")
+    pm.add_argument("--mapa", default="teyvat", choices=sorted(MAP_PATHS))
+    pm.add_argument("--zoom", type=int, default=14)
+    pm.add_argument("--delay", type=float, default=0.3, help="segundos entre downloads")
+    pm.add_argument("--out", default="mapas")
+    pm.add_argument("--cache", default="out/tiles_cache")
+    pm.add_argument("--yes", action="store_true", help="não pergunta antes de baixar")
 
     dg = sub.add_parser("diagnostico", help="teste único: junta tudo num zip para enviar")
     dg.add_argument("--seconds", type=float, default=45.0, help="duração da captura")
@@ -282,4 +317,5 @@ def register(sub: Any) -> dict[str, Any]:
         "detect-test": cmd_detect_test,
         "tiles": cmd_tiles,
         "diagnostico": cmd_diagnostico,
+        "preparar-mapa": cmd_prepare_map,
     }

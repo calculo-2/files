@@ -20,9 +20,12 @@ log = logging.getLogger(__name__)
 
 Gray = NDArray[np.uint8]
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 TILE = 2048
 TILE_OVERLAP = 64
+# Teto de pontos por megapixel de cada bloco. Medido em mapa real do appsample (zoom 14):
+# ~12 mil/Mpx em áreas densas; cortar abaixo disso derruba o acerto da busca global.
+MAX_PER_MPX = 12000
 
 
 def make_detector(nfeatures: int = 0) -> Any:
@@ -38,7 +41,7 @@ def to_gray(img: NDArray[np.uint8]) -> Gray:
 
 
 def detect_tiled(
-    gray: Gray, tile: int = TILE, overlap: int = TILE_OVERLAP
+    gray: Gray, tile: int = TILE, overlap: int = TILE_OVERLAP, max_per_mpx: int = MAX_PER_MPX
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
     """Detecta pontos SIFT bloco a bloco. Retorna (pontos Nx2, descritores Nx128)."""
     sift = make_detector()
@@ -55,6 +58,12 @@ def detect_tiled(
             kps, d = sift.detectAndCompute(block, None)
             if d is None or not kps:
                 continue
+            max_per_block = int(max_per_mpx * block.size / 1e6) if max_per_mpx else 0
+            if max_per_block and len(kps) > max_per_block:
+                # Guarda só os pontos mais fortes: limita a memória em mapas enormes.
+                order = np.argsort([-k.response for k in kps])[:max_per_block]
+                kps = [kps[i] for i in order]
+                d = d[order]
             xy = np.array([k.pt for k in kps], dtype=np.float32) + (xa, ya)
             # Guarda só os pontos do miolo do bloco, para não duplicar na sobreposição.
             keep = (

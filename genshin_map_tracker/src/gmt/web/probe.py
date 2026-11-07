@@ -23,7 +23,8 @@ log = logging.getLogger(__name__)
 
 MAX_JSON_FILES = 25
 MAX_JSON_BYTES = 5 * 1024 * 1024
-TILE_RE = re.compile(r"/(\d{1,2})/(-?\d+)/(-?\d+)\.(png|jpe?g|webp)", re.I)
+# Formatos de tile: ".../{z}/{x}/{y}.jpg" ou ".../{z}/tile-{x}_{y}.jpg" (appsample).
+TILE_RE = re.compile(r"/(\d{1,2})/(?:tile-)?(-?\d+)[/_](-?\d+)\.(png|jpe?g|webp)", re.I)
 LEGAL_RE = re.compile(r"term|termo|privac|tos\b|legal|condi", re.I)
 
 # Roda dentro da página: detecta bibliotecas de mapa e lê o estado sem alterar nada.
@@ -136,7 +137,9 @@ def run_probe(
             requests.append(entry)
             m = TILE_RE.search(rurl)
             if m and "image" in ctype:
-                template = rurl[: m.start()] + "/{z}/{x}/{y}." + m.group(4) + rurl[m.end() :]
+                # Troca z, x e y pelos marcadores, mantendo o resto do formato.
+                (z0, z1), (x0, x1), (y0, y1) = m.span(1), m.span(2), m.span(3)
+                template = rurl[:z0] + "{z}" + rurl[z1:x0] + "{x}" + rurl[x1:y0] + "{y}" + rurl[y1:]
                 tiles.setdefault(template, []).append(f"{m.group(1)}/{m.group(2)}/{m.group(3)}")
             if "json" in ctype and len(json_saved) < MAX_JSON_FILES:
                 body = resp.body()

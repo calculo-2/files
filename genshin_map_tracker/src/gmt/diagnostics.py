@@ -83,13 +83,13 @@ def cmd_diagnostico(args: argparse.Namespace, cfg: Config) -> int:
         for k, val in v.items():
             rep.say(f"   {k}: {val}")
 
-    win_info = rep.step("janela", lambda: _window(rep))
+    rep.say("\nAGORA: volte para o jogo (clique nele ou use Alt+Tab).")
+    rep.say("O teste espera até 2 minutos você estar no jogo.")
+    ready = rep.step("espera_jogo", lambda: _wait_for_game(rep, timeout=120.0))
+    win_info = rep.step("janela", lambda: _window(rep)) if ready else None
     if win_info and win_info.get("encontrada"):
-        rep.say(f"\nVolte para o jogo agora. A captura começa em 10 s e dura {args.seconds:.0f} s.")
-        rep.say(
-            "Durante a captura: ande, gire a câmera e, se puder, abra um baú ou pegue um oculus."
-        )
-        time.sleep(10)
+        rep.say(f"   Capturando por {args.seconds:.0f} s. Ande, gire a câmera e, se puder,")
+        rep.say("   abra um baú ou pegue um oculus.")
         rep.step("captura", lambda: _capture(rep, cfg, args.seconds))
         rep.step("ocr", lambda: _ocr(rep))
     else:
@@ -129,13 +129,34 @@ def _show_in_explorer(path: Path) -> None:
         log.debug("Não abriu o Explorador: %r", exc)
 
 
+def _wait_for_game(rep: Report, timeout: float) -> bool:
+    """Espera o jogo aberto, não minimizado e em foco (jogo em tela cheia minimiza no Alt+Tab)."""
+    from gmt.capture.window import find_game_window
+
+    deadline = time.monotonic() + timeout
+    warned = False
+    while time.monotonic() < deadline:
+        win = find_game_window()
+        if win is None:
+            if not warned:
+                rep.say("   Jogo não está aberto. Abra o Genshin Impact.")
+                warned = True
+        elif not win.is_minimized and win.is_foreground and win.client.width > 0:
+            time.sleep(2.0)  # dá tempo da tela do jogo voltar por completo
+            rep.say("   Jogo em foco: começando.")
+            return True
+        time.sleep(0.5)
+    rep.say("   O jogo não ficou em foco a tempo.")
+    return False
+
+
 def _window(rep: Report) -> dict[str, Any]:
     from gmt.capture.backends import CaptureError, DxcamBackend, MssBackend
     from gmt.capture.window import find_game_window
 
     win = find_game_window()
-    if win is None:
-        rep.say("   Jogo NÃO encontrado.")
+    if win is None or win.is_minimized or win.client.width <= 0:
+        rep.say("   Jogo NÃO encontrado (ou minimizado).")
         return {"encontrada": False}
     c = win.client
     rep.say(f"   Jogo: {c.width}x{c.height} em ({c.left},{c.top}); em foco: {win.is_foreground}")

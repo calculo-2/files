@@ -178,3 +178,56 @@ def test_auto_radius_and_tile_converter() -> None:
     conv = TileConverter(FakeBrowser(), {"teyvat": TileLayer(zoom=2, origin_x=100, origin_y=40)})
     assert conv.to_site("teyvat", 0, 0) == pytest.approx((-10.0, 25.0))
     assert conv.to_site("outra", 0, 0) is None
+
+
+class FakeSiteBrowser(FakeBrowser):
+    """Imita o appsample: marcadores lidos da tabela do site, marcação pela interface."""
+
+    def __init__(self, markers: list[tuple[str, str, float, float, bool]]) -> None:
+        super().__init__()
+        self.markers = markers  # (id, tipo do site, gx, gy, found)
+
+    def site_categories(self) -> dict[str, tuple[str, ...]]:
+        return {"chest": ("o17",), "geoculus": ("o6",)}
+
+    def nearby_site_markers(self, gx, gy, zoom, radius, types):  # type: ignore[no-untyped-def]
+        from gmt.web.browser import SiteMarker
+
+        out = []
+        for mid, t, x, y, found in self.markers:
+            d = float(np.hypot(x - gx, y - gy))
+            if t in types and d <= radius:
+                out.append(SiteMarker(mid, t, d, found, x, y))
+        return sorted(out, key=lambda m: m.distance)
+
+    def mark_found_ui(self, marker_id: str) -> str:
+        self.calls.append(("mark_ui", marker_id))
+        return "marked"
+
+
+def test_site_markers_path(world: np.ndarray, index: MapIndex) -> None:
+    ox, oy = 100_000.0, 200_000.0  # origem do mapa base em pixels globais
+    path_end = (1000 + 6 * 11 + ox, 1000 + oy)
+    browser = FakeSiteBrowser([
+        ("bau-perto", "o17", path_end[0] + 1, path_end[1], False),
+        ("bau-achado", "o17", path_end[0] - 1, path_end[1], True),  # já encontrado: ignora
+        ("geo", "o6", path_end[0], path_end[1], False),  # tipo errado para baú
+    ])  # fmt: skip
+    conv = TileConverter(browser, {"teyvat": TileLayer(zoom=14, origin_x=ox, origin_y=oy)})
+    store = MarkerStore(":memory:")
+    det = FakeDetector({12: CollectEvent("chest", True, 0.0, ("exp de aventura",))})
+    console = StatusConsole(io.StringIO())
+    app = App(
+        Localizer([index]),
+        conv,
+        console,
+        MinimapConfig(169, 125, 100),
+        browser=browser,
+        store=store,
+        detector=det,
+        options=AppOptions(radius=10),
+    )
+    run_path(app, world)
+    assert ("mark_ui", "bau-perto") in browser.calls
+    assert store.found_ids() == {"bau-perto"}
+    assert any("bau-perto: marcado no site" in line for line in console.lines)

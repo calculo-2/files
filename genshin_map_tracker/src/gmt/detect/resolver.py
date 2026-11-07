@@ -44,6 +44,22 @@ def kinds_for_event(event_kind: str) -> tuple[str, ...]:
     raise ValueError(f"Tipo de coleta desconhecido: {event_kind}")
 
 
+def decide(
+    distances: list[float], cfg: ResolverConfig, position_confidence: float
+) -> tuple[Decision, str]:
+    """Regra comum: marcar só com candidato claro e posição confiável."""
+    if not distances:
+        return "none", "nenhum marcador pendente desse tipo por perto"
+    if position_confidence < cfg.min_confidence:
+        return "suggest", f"posição incerta ({position_confidence:.2f})"
+    if len(distances) == 1:
+        return "mark", "único candidato no raio"
+    d1, d2 = distances[0], distances[1]
+    if d2 >= d1 * cfg.clear_ratio and d2 - d1 >= cfg.clear_gap * cfg.radius:
+        return "mark", f"mais perto com folga ({d1:.1f} vs {d2:.1f})"
+    return "suggest", f"candidatos parecidos ({d1:.1f} vs {d2:.1f})"
+
+
 def resolve(
     store: MarkerStore,
     cfg: ResolverConfig,
@@ -54,13 +70,6 @@ def resolve(
     position_confidence: float,
 ) -> Resolution:
     cands = store.nearby(layer, x, y, cfg.radius, kinds=kinds_for_event(event_kind))
-    if not cands:
-        return Resolution("none", [], "nenhum marcador não coletado desse tipo por perto")
-    if position_confidence < cfg.min_confidence:
-        return Resolution("suggest", cands[:3], f"posição incerta ({position_confidence:.2f})")
-    if len(cands) == 1:
-        return Resolution("mark", cands[:1], "único candidato no raio")
-    d1, d2 = cands[0][1], cands[1][1]
-    if d2 >= d1 * cfg.clear_ratio and d2 - d1 >= cfg.clear_gap * cfg.radius:
-        return Resolution("mark", cands[:1], f"mais perto com folga ({d1:.1f} vs {d2:.1f})")
-    return Resolution("suggest", cands[:3], f"candidatos parecidos ({d1:.1f} vs {d2:.1f})")
+    decision, reason = decide([d for _, d in cands], cfg, position_confidence)
+    keep = 1 if decision == "mark" else 3
+    return Resolution(decision, cands[:keep], reason)

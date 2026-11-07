@@ -43,6 +43,8 @@ OCULUS_KINDS = (
     "dendroculus",
     "hydroculus",
     "pyroculus",
+    "cryoculus",
+    "lunoculus",
 )
 CHEST_KIND = "chest"
 

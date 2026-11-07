@@ -18,7 +18,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 log = logging.getLogger(__name__)
 
@@ -117,12 +117,90 @@ UNPROJECT_JS = r"""
 """
 
 
+# Marcadores do site perto de um ponto (pixel global no zoom dado), lidos da tabela
+# da camada de marcadores do appsample: ids, posição normalizada (mx, my), tipo e "found".
+SITE_NEARBY_JS = r"""
+([gx, gy, zoom, radius, types]) => {
+  const m = window.__gmt && window.__gmt.map();
+  if (!m) return {error: 'mapa não encontrado'};
+  let layer = null;
+  m.eachLayer(l => { if (l.table && l.table.mx) layer = l; });
+  if (!layer) return {error: 'camada de marcadores não encontrada'};
+  const t = layer.table, s = m.options.crs.scale(zoom), want = new Set(types || []);
+  const out = [];
+  for (let i = 0; i < t.count; i++) {
+    const type = t.typeKeys ? t.typeKeys[t.type[i]] : null;
+    if (want.size && !want.has(type)) continue;
+    const x = t.mx[i] * s, y = t.my[i] * s, d = Math.hypot(x - gx, y - gy);
+    if (d <= radius) out.push({id: String(t.ids[i]), type: type, d: d, x: x, y: y,
+                               found: t.found ? !!t.found[i] : false});
+  }
+  out.sort((a, b) => a.d - b.d);
+  return {markers: out.slice(0, 20), total: t.count};
+}
+"""
+
+# Centraliza no marcador e devolve o ponto da tela onde ele ficou.
+SITE_CENTER_JS = r"""
+([id]) => {
+  const m = window.__gmt && window.__gmt.map();
+  let layer = null;
+  m && m.eachLayer(l => { if (l.table && l.table.rowOf) layer = l; });
+  if (!layer) return null;
+  const t = layer.table, row = t.rowOf.get(String(id)) ?? t.rowOf.get(Number(id));
+  if (row === undefined) return null;
+  const s0 = m.options.crs.scale(0);
+  const ll = m.unproject(window.L.point(t.mx[row] * s0, t.my[row] * s0), 0);
+  // Zoom máximo para separar marcadores vizinhos antes do clique; o app volta depois.
+  const prevZoom = m.getZoom(), maxZoom = m.getMaxZoom();
+  m.setView(ll, Number.isFinite(maxZoom) ? maxZoom : prevZoom + 4, {animate: false});
+  const cp = m.latLngToContainerPoint(ll), r = m.getContainer().getBoundingClientRect();
+  return {x: r.left + cp.x, y: r.top + cp.y, found: t.found ? !!t.found[row] : false,
+          prevZoom: prevZoom};
+}
+"""
+
+SITE_FOUND_JS = r"""
+([id]) => {
+  const m = window.__gmt && window.__gmt.map();
+  let layer = null;
+  m && m.eachLayer(l => { if (l.table && l.table.rowOf) layer = l; });
+  if (!layer || !layer.table.found) return null;
+  const row = layer.table.rowOf.get(String(id)) ?? layer.table.rowOf.get(Number(id));
+  return row === undefined ? null : !!layer.table.found[row];
+}
+"""
+
+# Botão "marcar como encontrado" do popup: variante "success" do site.
+POPUP_JS = r"""
+() => {
+  const pop = document.querySelector('.leaflet-popup');
+  if (!pop) return {open: false};
+  const btn = pop.querySelector('button.btn-success');
+  return {open: true, text: pop.innerText.slice(0, 200), hasButton: !!btn};
+}
+"""
+
+
 class ActionSink(Protocol):
     def action(self, text: str) -> None: ...
 
 
 class BrowserError(RuntimeError):
     pass
+
+
+MarkResult = Literal["marked", "already", "need_login", "no_popup", "not_found", "failed"]
+
+
+@dataclass(frozen=True)
+class SiteMarker:
+    id: str
+    type: str | None
+    distance: float  # pixels globais no zoom pedido
+    found: bool
+    x: float = 0.0  # pixel global no zoom pedido
+    y: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -243,6 +321,73 @@ class MapBrowser:
             return False
         self._say(f"marcar coletado: {marker_id}")
         return True
+
+    # ---------------------------------------------------- marcadores do site
+
+    def site_categories(self) -> dict[str, tuple[str, ...]]:
+        """{tipo interno: ids do site} lido da barra lateral (com reserva fixa)."""
+        from gmt.web.appsample import CATEGORY_JS, type_ids_from_buttons
+
+        return type_ids_from_buttons(self._eval(CATEGORY_JS) or [])
+
+    def nearby_site_markers(
+        self, gx: float, gy: float, zoom: int, radius: float, types: list[str]
+    ) -> list[SiteMarker] | None:
+        """Marcadores do site dos tipos dados num raio (pixels globais no `zoom`)."""
+        res = self._eval(SITE_NEARBY_JS, [gx, gy, zoom, radius, types])
+        if not res or "markers" not in res:
+            log.debug("Marcadores do site indisponíveis: %s", res)
+            return None
+        return [
+            SiteMarker(
+                m["id"], m["type"], float(m["d"]), bool(m["found"]), float(m["x"]), float(m["y"])
+            )
+            for m in res["markers"]
+        ]
+
+    def mark_found_ui(self, marker_id: str, timeout: float = 5.0) -> MarkResult:
+        """Marca pela interface do site, como uma pessoa: abre o marcador e clica no botão.
+
+        Só acontece no navegador. Depende de login no site (o progresso fica na conta).
+        """
+        if self._page is None:
+            return "failed"
+        spot = self._eval(SITE_CENTER_JS, [marker_id])
+        if not spot:
+            return "not_found"
+        try:
+            return self._click_found(marker_id, spot, timeout)
+        finally:
+            zoom = spot.get("prevZoom")
+            if zoom is not None:  # volta ao zoom em que o usuário estava
+                self._eval("([z]) => window.__gmt.map().setZoom(z, {animate: false})", [zoom])
+
+    def _click_found(self, marker_id: str, spot: dict[str, Any], timeout: float) -> MarkResult:
+        if spot.get("found"):
+            return "already"
+        time.sleep(0.4)  # deixa o mapa redesenhar
+        self._page.mouse.click(spot["x"], spot["y"])
+        deadline = time.monotonic() + timeout
+        popup: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            popup = self._eval(POPUP_JS) or {}
+            if popup.get("open"):
+                break
+            time.sleep(0.2)
+        if not popup.get("open"):
+            return "no_popup"
+        if not popup.get("hasButton"):
+            return "already" if self._eval(SITE_FOUND_JS, [marker_id]) else "failed"
+        self._page.click(".leaflet-popup button.btn-success")
+        while time.monotonic() < deadline + timeout:
+            if self._eval(SITE_FOUND_JS, [marker_id]):
+                self._say(f"marcado como encontrado no site: {marker_id}")
+                return "marked"
+            if self._page.query_selector('[role="dialog"]'):
+                self._say("o site pediu login: entre na sua conta no Chrome do gmt")
+                return "need_login"
+            time.sleep(0.25)
+        return "failed"
 
     # ------------------------------------------------------------ internos
 
