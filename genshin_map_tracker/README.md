@@ -12,9 +12,12 @@ PC, do jogo e do site ainda não foi validado. Detalhes em [AVALIACAO.md](AVALIA
 
 1. Instale o Python 3.13 (python.org), marcando **"Add python.exe to PATH"**.
 2. Dê dois cliques em **`instalar.bat`**. Leva alguns minutos, e é só uma vez.
-3. Com o Genshin aberto em tela cheia, dê dois cliques em **`diagnostico.bat`**. Leva uns
-   2 minutos: siga o que aparecer na janela e mande o `.zip` que ele indicar no fim.
-4. Quando o mapa base estiver configurado: **`iniciar.bat`** roda o app completo.
+3. Dê dois cliques em **`preparar_mapa.bat`**. Ele baixa o mapa de Teyvat do site uma vez
+   (~30 min; pode usar o PC enquanto isso) e já configura o app.
+4. No Chrome que o app abrir, entre na sua conta do appsample (só na primeira vez) e deixe
+   ligadas só as categorias de baú e de oculus.
+5. Com o Genshin aberto: **`iniciar.bat`** roda o app completo.
+6. Se algo falhar: **`diagnostico.bat`** junta tudo num `.zip` para enviar.
 
 ## Regras de segurança (não negociáveis)
 
@@ -39,9 +42,9 @@ tela do jogo ─► minimapa ─► posição no mapa base ─► coordenada do 
 | Fase | O quê | Estado |
 |---|---|---|
 | 1 | Captura da janela e recorte do minimapa | Validada no seu PC (mss). O dxcam foi corrigido, mas a correção ainda não foi testada. |
-| 2 | Localização (SIFT + RANSAC + correlação + Kalman), camadas, teleporte | Testada com mapa sintético. **Falta o mapa real.** |
-| 3 | Controle do mapa no Chrome (seguir, ponto do jogador, destaque) | Testada com Leaflet real num site falso. **Falta confirmar que o appsample usa Leaflet.** |
-| 4 | Conversão de coordenadas, calibração, banco de marcadores | Testada. **Falta saber o formato dos dados do site.** |
+| 2 | Localização (SIFT + RANSAC + correlação + Kalman), camadas, teleporte | **Testada com o mapa real do site e seus prints** (5 de 5 localizados). |
+| 3 | Controle do mapa no Chrome (seguir, ponto do jogador, destaque) | **Testada no appsample real** (Leaflet 1.9.4): o mapa segue a posição. |
+| 4 | Mapa base com tiles do site, conversão exata de coordenadas, marcadores do site | Testada no site real e numa réplica. A marcação pela interface só foi testada na réplica. |
 | 5 | Detecção de coleta por OCR (RapidOCR) + regra de decisão | OCR testado em texto PT-BR e no seu print. **Faltam as regiões e os textos reais.** |
 | 6 | `gmt run`, janela de status, atalho de pausa, `.bat`, diagnóstico | Feita. O executável (PyInstaller) ficou para depois (ver AVALIACAO.md). |
 
@@ -63,6 +66,7 @@ Atalho para pausar e retomar: **Ctrl+Alt+P** (pode ser trocado no `config.toml`)
 
 | Comando | Para quê |
 |---|---|
+| `gmt preparar-mapa` | Baixa o mapa base do site (zoom 14), cria o índice e configura |
 | `gmt diagnostico` | Teste único que junta tudo num zip |
 | `gmt run` | App completo |
 | `gmt find-window` | Mostra se achou o jogo e qual captura vai usar |
@@ -87,7 +91,7 @@ Não existe mapa de Teyvat com licença realmente aberta: todos derivam das imag
 
 | Fonte | Licença | Situação |
 |---|---|---|
-| Tiles do appsample | Termos ainda não lidos | **Proposta.** Conversão exata para o site. Depende do diagnóstico. |
+| Tiles do appsample | Sem página de termos; `robots.txt` libera tudo | **Em uso.** Baixados no seu PC, para uso pessoal; não são redistribuídos. |
 | MrPowley/genshin-map-tracker | GPL-3.0 | Mesma ideia (SIFT); o mapa fica num Google Drive. Só referência. |
 | Hektin/Genshin-Chests | MIT | 3.328 baús com coordenadas do jogo. Possível dado de apoio. |
 | YuehaiTeam/zhiqiong | sem licença | DLL fechada (cvAutoTrack). Descartado: não dá para auditar. |
