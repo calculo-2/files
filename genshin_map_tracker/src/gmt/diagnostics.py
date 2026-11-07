@@ -108,8 +108,25 @@ def cmd_diagnostico(args: argparse.Namespace, cfg: Config) -> int:
             if f.is_file():
                 zf.write(f, f.relative_to(folder.parent))
     size = zip_path.stat().st_size / 1e6
-    rep.say(f"\nPRONTO. Mande este arquivo: {zip_path.resolve()} ({size:.1f} MB)")
+    rep.say("\n" + "=" * 70)
+    rep.say(f"PRONTO. Mande este arquivo ({size:.1f} MB):")
+    rep.say(f"   {zip_path.resolve()}")
+    rep.say("A pasta vai abrir com o arquivo já selecionado.")
+    rep.say("=" * 70)
+    _show_in_explorer(zip_path)
     return 0
+
+
+def _show_in_explorer(path: Path) -> None:
+    """Abre o Explorador do Windows com o arquivo selecionado."""
+    if sys.platform != "win32":
+        return
+    import subprocess
+
+    try:
+        subprocess.Popen(["explorer", "/select,", str(path.resolve())])
+    except OSError as exc:
+        log.debug("Não abriu o Explorador: %r", exc)
 
 
 def _window(rep: Report) -> dict[str, Any]:
