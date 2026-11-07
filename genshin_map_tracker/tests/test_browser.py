@@ -125,3 +125,27 @@ def test_page_without_map(tmp_path: Path) -> None:
             assert not b.follow(0, 0)
         finally:
             b.close()
+
+
+def test_follow_centers_in_visible_area(tmp_path: Path) -> None:
+    """Com uma barra lateral por cima do mapa, o alvo fica no meio da parte visível."""
+    page = PAGE.replace(
+        '<div id="map" style="width:1000px;height:700px"></div>',
+        '<div id="map" style="width:1000px;height:700px"></div>'
+        '<div id="side" style="position:absolute;left:0;top:0;width:300px;height:700px;'
+        'background:#fff;z-index:2000"><p>painel</p></div>',
+    )
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "index.html").write_text(page, encoding="utf-8")
+    with serve(site) as base:
+        b = MapBrowser(BrowserConfig(url=f"{base}/index.html", profile=tmp_path / "p",
+                                     headless=True, executable_path=CHROMIUM, animate=False,
+                                     load_timeout=15))  # fmt: skip
+        try:
+            b.open()
+            assert b.follow(-40.0, 60.0, force=True)
+            x = b._page.evaluate("() => window.__gmt.map().latLngToContainerPoint([-40, 60]).x")
+            assert x == pytest.approx(300 + (1000 - 300) / 2, abs=2)
+        finally:
+            b.close()

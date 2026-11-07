@@ -60,12 +60,29 @@ FOLLOW_JS = r"""
 ([lat, lng, zoom, minPx, animate]) => {
   const m = window.__gmt && window.__gmt.map();
   if (!m) return {ok: false, reason: 'mapa não encontrado'};
+  const box = m.getContainer().getBoundingClientRect();
+  // Painel (barra lateral) por cima da borda esquerda do mapa: mede a largura dele para
+  // centralizar na área que a pessoa realmente vê.
+  let panel = 0;
+  const el = document.elementFromPoint(box.left + 5, box.top + box.height / 2);
+  if (el && !m.getContainer().contains(el)) {
+    let e = el;
+    while (e.parentElement && e.parentElement.getBoundingClientRect().width < box.width * 0.6) {
+      e = e.parentElement;
+    }
+    const r = e.getBoundingClientRect();
+    const narrow = r.width < box.width * 0.6;
+    if (r.left <= box.left + 5 && narrow) panel = Math.max(0, r.right - box.left);
+  }
+  const z = zoom === null ? m.getZoom() : zoom;
   const target = window.L.latLng(lat, lng);
-  const d = m.latLngToContainerPoint(m.getCenter()).distanceTo(m.latLngToContainerPoint(target));
-  if (zoom === null && d < minPx) return {ok: true, moved: false, px: d};
-  if (zoom === null) m.panTo(target, {animate: animate, duration: 0.4});
-  else m.setView(target, zoom, {animate: animate});
-  return {ok: true, moved: true, px: d};
+  const center = m.unproject(m.project(target, z).subtract([panel / 2, 0]), z);
+  const seen = window.L.point(box.width / 2 + panel / 2, box.height / 2);
+  const d = seen.distanceTo(m.latLngToContainerPoint(target));
+  if (zoom === null && d < minPx) return {ok: true, moved: false, px: d, panel: panel};
+  if (zoom === null) m.panTo(center, {animate: animate, duration: 0.4});
+  else m.setView(center, zoom, {animate: animate});
+  return {ok: true, moved: true, px: d, panel: panel};
 }
 """
 

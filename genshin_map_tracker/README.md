@@ -42,8 +42,8 @@ tela do jogo ─► minimapa ─► posição no mapa base ─► coordenada do 
 | Fase | O quê | Estado |
 |---|---|---|
 | 1 | Captura da janela e recorte do minimapa | Validada no seu PC (mss). O dxcam foi corrigido, mas a correção ainda não foi testada. |
-| 2 | Localização (SIFT + RANSAC + correlação + Kalman), camadas, teleporte | **Testada com o mapa real do site e seus prints** (5 de 5 localizados). |
-| 3 | Controle do mapa no Chrome (seguir, ponto do jogador, destaque) | **Testada no appsample real** (Leaflet 1.9.4): o mapa segue a posição. |
+| 2 | Localização (SIFT + RANSAC + correlação + Kalman), camadas, teleporte | **Testada com o Teyvat inteiro do site e seus prints:** 5 de 5 achados, ~90 ms cada. |
+| 3 | Controle do mapa no Chrome (seguir, ponto do jogador, destaque) | **Testada no appsample real:** o ponto do jogador cai no lugar certo, centralizado na área visível. |
 | 4 | Mapa base com tiles do site, conversão exata de coordenadas, marcadores do site | Testada no site real e numa réplica. A marcação pela interface só foi testada na réplica. |
 | 5 | Detecção de coleta por OCR (RapidOCR) + regra de decisão | OCR testado em texto PT-BR e no seu print. **Faltam as regiões e os textos reais.** |
 | 6 | `gmt run`, janela de status, atalho de pausa, `.bat`, diagnóstico | Feita. O executável (PyInstaller) ficou para depois (ver AVALIACAO.md). |

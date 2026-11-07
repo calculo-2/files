@@ -17,7 +17,8 @@ Atualizada em 07/11/2026, depois do diagnóstico do seu PC e de testes no site r
 | Captura (dxcam) | Corrigida pelo código do dxcam; seu diagnóstico rodou com o jogo minimizado | Média |
 | Recorte do minimapa | Seus prints (centro medido pela seta) | Alta (1080p) |
 | Mapa base do site | Tiles reais baixados, montados e conferidos visualmente | Alta |
-| Localização | 5 de 5 prints achados em pedaços do mapa nos zooms 14 e 15; o print 4 foi achado no zoom 13 com o mapa inteiro e bate com o zoom 15 em menos de 3 px | Alta na área testada |
+| Localização | Teyvat inteiro (zoom 14, 689 mil pontos): 5 de 5 prints achados, ~90 ms cada, posição igual à esperada em menos de 1 px | Alta na área testada |
+| Posição no site | Ponto do jogador desenhado no appsample real cai no mesmo lugar do seu minimapa | Alta |
 | Seguir no site | No appsample real: mapa encontrado e movido para a posição pedida | Alta |
 | Tabela de marcadores do site | Lida no site real (id, tipo, posição, "found") | Alta |
 | Marcar pela interface | Réplica local com a mesma estrutura: marca, detecta "já marcado" e pedido de login | Média (falta o site real) |
@@ -36,7 +37,7 @@ Atualizada em 07/11/2026, depois do diagnóstico do seu PC e de testes no site r
 
 1. **Marcação no site real (risco médio).** Pode falhar se o popup ou o botão do site forem diferentes do que vi no código. Nesse caso o app avisa "não deu para marcar" e você marca à mão.
 2. **Detecção de coleta (risco alto de ajuste fino).** As áreas da tela onde aparecem as notificações ainda são estimadas. Recomendo começar com `auto_mark = false`: o app só destaca o baú provável e você confirma.
-3. **Memória (risco baixo).** O mapa do zoom 14 ocupa ~0,8 GB de RAM com o índice. Num PC de jogo deve ir bem; se pesar, dá para usar o zoom 13, com menos acerto.
+3. **Memória (risco baixo a médio).** Medido: ~1,6 GB de RAM no pico com o Teyvat inteiro no zoom 14 (o arquivo do índice tem 105 MB). Com 16 GB de RAM, junto com o jogo, deve ir bem. Se pesar, dá para usar `--zoom 13`, com menos acerto.
 4. **Lugares difíceis.** Debaixo d'água, cavernas e mar aberto podem perder a posição. Nesses casos o app avisa e não marca nada.
 5. **Direção do personagem:** não foi feita (a seta é quase simétrica).
 6. **Risco à conta do jogo:** nunca é zero, mas o app só lê a tela; toda a automação fica no navegador, num site de terceiros.
