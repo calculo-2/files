@@ -92,7 +92,7 @@ def test_lost_after_repeated_failures(world: np.ndarray, index: MapIndex) -> Non
     assert methods[2:] == ["lost", "lost"]
     # Recupera com a busca global quando o minimapa volta a fazer sentido.
     fix = loc.update(make_minimap(world, 1500, 1500, seed=2), 2.0)
-    assert fix.method == "global"
+    assert fix.method == "local", "reencontra perto da última posição, sem busca global"
     assert _err(fix.raw, 1500, 1500) < 4.0
 
 
@@ -111,7 +111,7 @@ def test_teleport_needs_confirmation(world: np.ndarray, index: MapIndex) -> None
     first = loc.update(make_minimap(world, 1800, 1700, seed=500), 1.0)
     assert first.method == "predicted", "um salto isolado não deve ser aceito"
     assert first.x is not None and first.x < 1100
-    second = loc.update(make_minimap(world, 1800, 1700, seed=501), 1.2)
+    second = loc.update(make_minimap(world, 1800, 1700, seed=501), 1.6)
     assert second.method == "global"
     assert _err((second.x or 0, second.y or 0), 1800, 1700) < 3.0
 

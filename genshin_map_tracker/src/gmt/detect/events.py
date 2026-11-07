@@ -18,9 +18,11 @@ from __future__ import annotations
 import difflib
 import logging
 import re
+import time
 import unicodedata
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 import cv2
@@ -143,7 +145,7 @@ class DetectorConfig:
     change_level: int = 30  # diferença (0-255) para um pixel contar como mudado
     prompt_memory: float = 8.0  # s: aviso de baú visto há pouco conta como evidência
     cooldown: float = 6.0  # s: ignora repetição do mesmo tipo de coleta
-    min_interval: float = 0.4  # s: OCR no máximo ~2,5x por segundo por região
+    min_interval: float = 1.0  # s: OCR no máximo 1x por segundo por região (CPU)
 
 
 @dataclass
@@ -154,9 +156,21 @@ class _RegionState:
 
 
 class CollectDetector:
-    def __init__(self, engine: OcrEngine, config: DetectorConfig | None = None) -> None:
+    def __init__(
+        self,
+        engine: OcrEngine,
+        config: DetectorConfig | None = None,
+        record_dir: Path | None = None,
+        max_crops: int = 300,
+    ) -> None:
         self.engine = engine
         self.config = config or DetectorConfig()
+        # Registro para calibrar: texto lido (ocr.log) e recortes das regiões com texto novo.
+        self.record_dir = record_dir
+        self.max_crops = max_crops
+        self._crops = 0
+        if record_dir is not None:
+            record_dir.mkdir(parents=True, exist_ok=True)
         self._regions = {"prompt": _RegionState(), "pickup": _RegionState()}
         self._last_chest_prompt = -1e9
         self._last_event: dict[str, float] = {}
@@ -206,11 +220,25 @@ class CollectDetector:
             if float(changed.mean()) < self.config.change_fraction:
                 return None
         st.last, st.last_ocr_t = small, t
+        previous = st.lines
         st.lines = self.engine.read(img)
         self.ocr_runs += 1
         for line in st.lines:
             self.recent_text.append(f"{name}: {line}")
+        if self.record_dir is not None and st.lines and set(st.lines) != set(previous):
+            self._record(name, img, st.lines)
         return st.lines
+
+    def _record(self, name: str, img: Image, lines: list[str]) -> None:
+        stamp = time.strftime("%H%M%S")
+        with (self.record_dir / "ocr.log").open("a", encoding="utf-8") as fh:  # type: ignore[operator]
+            fh.write(f"[{stamp}] {name}: {' | '.join(lines)}\n")
+        if self._crops < self.max_crops:
+            self._crops += 1
+            path = self.record_dir / f"{stamp}_{self._crops:03d}_{name}.jpg"  # type: ignore[operator]
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if ok:
+                buf.tofile(str(path))
 
     def _not_repeated(self, e: CollectEvent) -> bool:
         last = self._last_event.get(e.kind, -1e9)
@@ -223,11 +251,12 @@ class CollectDetector:
 class RapidOcr:
     """OCR local com RapidOCR (ONNX, roda na CPU, instala pelo pip)."""
 
-    def __init__(self) -> None:
+    def __init__(self, threads: int = 2) -> None:
         try:
             from rapidocr_onnxruntime import RapidOCR
         except ImportError as exc:
             raise RuntimeError('RapidOCR não instalado: pip install -e ".[ocr]"') from exc
+        _limit_onnx_threads(threads)
         self._engine = RapidOCR()
 
     def read(self, image: Image) -> list[str]:
@@ -286,3 +315,23 @@ class ThreadedDetector:
         self._stop = True
         self._wake.set()
         self._thread.join(timeout=2.0)
+
+
+def _limit_onnx_threads(threads: int) -> None:
+    """Limita as threads do onnxruntime usado pelo RapidOCR (por padrão ele usa todos
+    os núcleos, o que disputava CPU com o jogo). A versão 1.2 do RapidOCR não tem
+    opção para isso; trocamos a fábrica de SessionOptions do módulo dele."""
+    try:
+        import onnxruntime as ort
+        import rapidocr_onnxruntime.utils as rutils
+    except ImportError:
+        return
+
+    def options() -> object:
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = threads
+        opts.inter_op_num_threads = 1
+        return opts
+
+    if hasattr(rutils, "SessionOptions"):
+        rutils.SessionOptions = options

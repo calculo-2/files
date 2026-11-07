@@ -52,6 +52,9 @@ class LocalizerConfig:
     max_dt: float = 2.0  # acima disso (s), trata como sem rastreio recente
     teleport_confirmations: int = 2  # buscas globais seguidas no novo lugar para aceitar salto
     lost_after: int = 5  # falhas seguidas até declarar "posição perdida"
+    wide_margin: float = 4.0  # busca ampla em volta da última posição, em raios do minimapa
+    recall_time: float = 120.0  # s: por quanto tempo a última posição ajuda a reencontrar
+    global_interval: float = 0.5  # s: intervalo mínimo entre buscas no mapa inteiro (CPU)
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,8 @@ class _State:
     misses: int = 0
     pending: list[_Match] = field(default_factory=list)
     last_t: float | None = None
+    last_known: tuple[str, float, float, float] | None = None  # camada, x, y, instante
+    last_global_t: float = -1e9
 
 
 class Localizer:
@@ -124,6 +129,15 @@ class Localizer:
             if local is not None:
                 return self._accept(local, t, "local")
 
+        # Antes do mapa inteiro: busca ampla em volta da última posição conhecida.
+        # Resolve a maioria das falhas curtas (minimapa coberto ou borrado por um instante).
+        near = self._match_near_last(gray, minimap, t)
+        if near is not None:
+            return self._accept(near, t, "local", reset=not tracking)
+
+        if t - st.last_global_t < self.config.global_interval:
+            return self._miss(t)
+        st.last_global_t = t
         found = self._match_global(gray, minimap)
         if found is not None:
             radius_map = minimap.circle.r * (self.scale or found.scale)
@@ -185,6 +199,7 @@ class Localizer:
             self._kf = KalmanFilter2D()
         x, y = self._kf.update(m.x, m.y, t, m.confidence)
         st.layer, st.misses, st.pending, st.last_t = m.layer, 0, [], t
+        st.last_known = (m.layer, x, y, t)
         if method == "global" and self.config.scale is None:
             self._scales.append(m.scale)
         return Fix(method, m.confidence, x, y, (m.x, m.y), m.layer, self.scale)
@@ -203,6 +218,24 @@ class Localizer:
         return Fix("lost", 0.0, layer=st.layer, scale=self.scale)
 
     # ---- busca local
+
+    def _match_near_last(
+        self, gray: NDArray[np.uint8], minimap: Minimap, t: float
+    ) -> _Match | None:
+        st, scale = self._state, self.scale
+        if st.last_known is None or scale is None:
+            return None
+        layer, x, y, when = st.last_known
+        if t - when > self.config.recall_time:
+            return None
+        if self._kf.initialized:
+            x, y = self._kf.predict(t)
+        radius_map = minimap.circle.r * scale
+        # Só até onde dá para ter andado desde a última posição: saltos maiores
+        # (teleporte) continuam passando pela confirmação da busca global.
+        reach = radius_map * (self.config.base_margin + self.config.max_speed * (t - when))
+        margin = min(radius_map * self.config.wide_margin, reach)
+        return self._correlate(gray, minimap, layer, x, y, scale, margin)
 
     def _match_local(self, gray: NDArray[np.uint8], minimap: Minimap, t: float) -> _Match | None:
         st = self._state

@@ -9,6 +9,7 @@ tela do Discord). Nenhum deles se anexa ao processo do jogo nem hooka DirectX.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 from typing import Any, Protocol
@@ -121,12 +122,17 @@ class DxcamBackend:
             raise CaptureError(f"dxcam não abriu a captura: {exc!r}") from exc
 
         # No primário a origem é (0,0); confere se a janela cabe nele.
-        if target.left < 0 or target.top < 0 or target.right > cam.width:
+        fits = target.left >= 0 and target.top >= 0
+        fits = fits and target.right <= cam.width and target.bottom <= cam.height
+        if not fits:
+            size = f"{cam.width}x{cam.height}"
             cam.release()
-            raise CaptureError("dxcam: a janela do jogo não está no monitor primário.")
-        if target.bottom > cam.height:
-            cam.release()
-            raise CaptureError("dxcam: a janela do jogo não está no monitor primário.")
+            outputs = ""
+            with contextlib.suppress(Exception):
+                outputs = " | saídas: " + dxcam.output_info().replace("\n", "; ")
+            raise CaptureError(
+                f"dxcam: janela do jogo em {target} não cabe no monitor primário ({size}){outputs}"
+            )
         return cam, (0, 0)
 
     def grab(self, rect: Rect) -> Frame | None:

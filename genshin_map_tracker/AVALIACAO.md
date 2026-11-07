@@ -9,6 +9,19 @@ Atualizada em 07/11/2026, depois do diagnóstico do seu PC e de testes no site r
 - **Marcação de baú/oculus no site:** implementada pela interface (abre o marcador e clica no botão verde). Só foi testada numa réplica; no site real **precisa do seu PC e de login** no appsample.
 - **Seu próximo passo:** `instalar.bat` → `preparar_mapa.bat` (~30 min, uma vez) → `iniciar.bat`.
 
+## 0. Primeira sessão real (07/11, ~10 min no seu PC)
+
+- **Localização:** funcionou bem (confiança de 0,7 a 0,9), e o mapa do site seguiu você.
+- **Coleta:** nenhuma foi detectada. As regiões e os textos do OCR ainda não batem com o jogo.
+- **CPU:** 309% de um núcleo, alto demais. Causas: OCR sem limite e busca global a cada quadro com a posição perdida.
+- **Perdas de posição:** frequentes, às vezes por minutos.
+
+Correções feitas:
+- OCR com 2 threads e no máximo 1 leitura por segundo (medido: 116 ms por região).
+- Busca global no máximo 2 vezes por segundo.
+- Busca ampla em volta da última posição antes da busca global.
+- Registro automático do texto lido (`out/ocr`) e dos momentos de perda (`out/perdido`), tudo empacotado num zip ao encerrar.
+
 ## 1. O que foi verificado e como
 
 | Parte | Como foi verificado | Confiança |

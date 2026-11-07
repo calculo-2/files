@@ -42,6 +42,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
         print("Nenhum mapa base configurado. Veja a seção [[maps]] em config.example.toml.")
         return 2
 
+    _reset_session_files(cfg.capture.output_dir)
     console = StatusConsole(log_file=cfg.capture.output_dir / "acoes.log")
     console.info("Genshin Map Tracker: só lê a tela; nada é enviado ao jogo.")
     indexes = [MapIndex.from_file(m.image, name=m.layer) for m in cfg.maps]
@@ -86,7 +87,9 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
         from gmt.detect.events import CollectDetector, RapidOcr, ThreadedDetector
 
         try:
-            detector = ThreadedDetector(CollectDetector(RapidOcr()))
+            detector = ThreadedDetector(
+                CollectDetector(RapidOcr(), record_dir=cfg.capture.output_dir / "ocr")
+            )
         except RuntimeError as exc:
             console.info(f"detecção de coleta desligada: {exc}")
 
@@ -103,8 +106,11 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
         store=store,
         detector=detector,
         options=AppOptions(
-            follow=cfg.site.follow, auto_mark=cfg.detect.auto_mark, radius=cfg.detect.radius
-        ),  # fmt: skip
+            follow=cfg.site.follow,
+            auto_mark=cfg.detect.auto_mark,
+            radius=cfg.detect.radius,
+            lost_dir=cfg.capture.output_dir / "perdido",
+        ),
     )
     hotkey = GlobalHotkey(cfg.pause_hotkey, app.toggle_pause)
     if hotkey.start():
@@ -139,6 +145,47 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
             browser.close()
         store.close()
     console.info(f"CPU média do app: {stats.avg_cpu:.1f}% de um núcleo")
+    cmd_package(args, cfg)  # já deixa o zip da sessão pronto para enviar
+    return 0
+
+
+SESSION_FILES = ("acoes.log", "ocr", "perdido")
+
+
+def _reset_session_files(out: Path) -> None:
+    """Cada `gmt run` começa com registros limpos (o pacote leva só a última sessão)."""
+    import shutil
+
+    for name in SESSION_FILES:
+        path = out / name
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.exists():
+            path.unlink()
+
+
+def cmd_package(_args: argparse.Namespace, cfg: Config) -> int:
+    """Junta os registros da última sessão num zip para enviar."""
+    import time
+    import zipfile
+
+    out = cfg.capture.output_dir
+    zip_path = out / f"sessao_{time.strftime('%Y%m%d-%H%M%S')}.zip"
+    files = [out / n for n in SESSION_FILES] + [Path("config.toml")]
+    count = 0
+    out.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            items = sorted(f.rglob("*")) if f.is_dir() else [f]
+            for item in items:
+                if item.is_file():
+                    zf.write(item, item.relative_to(f.parent))
+                    count += 1
+    print(f"\nPacote da sessão ({count} arquivos): {zip_path.resolve()}")
+    print("Mande esse arquivo .zip.")
+    from gmt.diagnostics import _show_in_explorer
+
+    _show_in_explorer(zip_path)
     return 0
 
 
@@ -296,6 +343,8 @@ def register(sub: Any) -> dict[str, Any]:
     tl.add_argument("--yes", action="store_true", help="confirma o download")
 
     from gmt.diagnostics import cmd_diagnostico
+
+    sub.add_parser("pacote", help="junta os registros da última sessão num zip")
     from gmt.web.siteconfig import MAP_PATHS
 
     pm = sub.add_parser("preparar-mapa", help="monta o mapa base com os tiles do site (uma vez)")
@@ -318,4 +367,5 @@ def register(sub: Any) -> dict[str, Any]:
         "tiles": cmd_tiles,
         "diagnostico": cmd_diagnostico,
         "preparar-mapa": cmd_prepare_map,
+        "pacote": cmd_package,
     }

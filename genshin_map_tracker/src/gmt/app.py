@@ -166,6 +166,8 @@ class AppOptions:
     auto_mark: bool = True
     radius: float = 0.0  # unidades do site; 0 = automático pelo tamanho do minimapa
     radius_fraction: float = 0.12  # raio automático = fração do raio do minimapa no mapa
+    lost_dir: Path | None = None  # salva imagens dos momentos em que a posição se perde
+    max_lost_images: int = 40
 
 
 EVENT_NAMES = {"chest": "baú"}
@@ -193,6 +195,7 @@ class App:
         self.options = options or AppOptions()
         self.paused = threading.Event()
         self._site_types: dict[str, tuple[str, ...]] | None = None
+        self._lost_saved = 0
         self.last_fix: Fix | None = None
         self.last_site: tuple[float, float] | None = None
         self._was_lost = False
@@ -223,6 +226,7 @@ class App:
             self.console.action(f"posição encontrada em {fix.layer}")
         if not fix.ok and not self._was_lost and fix.method == "lost":
             self.console.action("posição PERDIDA; procurando...")
+            self._save_lost(frame, mm)
         self._was_lost = not fix.ok
 
         if site is not None and self.browser is not None:
@@ -237,6 +241,23 @@ class App:
 
         self.console.status(fix, site, t)
         return fix
+
+    def _save_lost(self, frame: Image, mm: object) -> None:
+        """Guarda o quadro e o minimapa de quando a posição se perdeu (para diagnóstico)."""
+        opts = self.options
+        if opts.lost_dir is None or self._lost_saved >= opts.max_lost_images:
+            return
+        import cv2
+
+        self._lost_saved += 1
+        opts.lost_dir.mkdir(parents=True, exist_ok=True)
+        stamp = f"{time.strftime('%H%M%S')}_{self._lost_saved:02d}"
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if ok:
+            buf.tofile(str(opts.lost_dir / f"{stamp}_tela.jpg"))
+        ok, buf = cv2.imencode(".png", mm.with_alpha())  # type: ignore[attr-defined]
+        if ok:
+            buf.tofile(str(opts.lost_dir / f"{stamp}_minimapa.png"))
 
     def _search_radius(self, fix: Fix, minimap_r: float) -> float:
         if self.options.radius > 0:

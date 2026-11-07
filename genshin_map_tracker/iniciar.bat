@@ -7,5 +7,7 @@ if not exist .venv\Scripts\activate.bat (
   exit /b 1
 )
 call .venv\Scripts\activate.bat
+echo Para encerrar: Ctrl+C. Se o Windows perguntar "Deseja finalizar", responda S.
+echo.
 gmt run
 pause
