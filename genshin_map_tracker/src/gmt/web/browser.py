@@ -232,6 +232,33 @@ SITE_CENTER_JS = r"""
 }
 """
 
+# Depois do zoom: onde o marcador ficou na tela e um ponto do ícone dele que o clique
+# do site realmente acerta (hitTest do próprio site: o ícone de cima ganha). Testa alguns
+# pontos dentro do ícone; se outro ícone cobrir todos, devolve ok=false.
+SITE_AIM_JS = r"""
+([id]) => {
+  const m = window.__gmt && window.__gmt.map();
+  let layer = null;
+  m && m.eachLayer(l => { if (l.table && l.table.rowOf) layer = l; });
+  if (!layer) return null;
+  const t = layer.table, row = t.rowOf.get(String(id)) ?? t.rowOf.get(Number(id));
+  if (row === undefined) return null;
+  const s0 = m.options.crs.scale(0);
+  const ll = m.unproject(window.L.point(t.mx[row] * s0, t.my[row] * s0), 0);
+  const cp = m.latLngToContainerPoint(ll), r = m.getContainer().getBoundingClientRect();
+  if (typeof layer.hitTest !== 'function') return {ok: true, x: r.left + cp.x, y: r.top + cp.y};
+  const offsets = [[0, 0], [0, -8], [0, -14], [-6, -10], [6, -10], [0, 6], [-8, 0], [8, 0],
+                   [0, -20], [-10, -16], [10, -16]];
+  let any = false;
+  for (const [dx, dy] of offsets) {
+    const hits = layer.hitTest({x: cp.x + dx, y: cp.y + dy}) || [];
+    if (hits.includes(row)) any = true;
+    if (hits[0] === row) return {ok: true, x: r.left + cp.x + dx, y: r.top + cp.y + dy};
+  }
+  return {ok: false, covered: any, x: r.left + cp.x, y: r.top + cp.y};
+}
+"""
+
 SITE_FOUND_JS = r"""
 ([id]) => {
   const m = window.__gmt && window.__gmt.map();
@@ -279,7 +306,7 @@ class BrowserError(RuntimeError):
 
 
 MarkResult = Literal[
-    "marked", "already", "need_login", "no_popup", "not_found", "wrong_marker", "failed"
+    "marked", "already", "need_login", "no_popup", "not_found", "wrong_marker", "overlap", "failed"
 ]
 
 
@@ -499,8 +526,19 @@ class MapBrowser:
     def _click_found(self, marker_id: str, spot: dict[str, Any], timeout: float) -> MarkResult:
         if spot.get("found"):
             return "already"
-        time.sleep(0.4)  # deixa o mapa redesenhar
-        self._page.mouse.click(spot["x"], spot["y"])
+        # Espera o mapa redesenhar no zoom máximo e mira num ponto que acerte só este ícone.
+        aim: dict[str, Any] | None = None
+        for _ in range(3):
+            time.sleep(0.5)
+            aim = self._eval(SITE_AIM_JS, [marker_id])
+            if aim and aim.get("ok"):
+                break
+        if not aim:
+            return "not_found"
+        if not aim.get("ok"):
+            self._say(f"ícone de {marker_id} coberto por outro no mapa; não cliquei")
+            return "overlap"
+        self._page.mouse.click(aim["x"], aim["y"])
         deadline = time.monotonic() + timeout
         popup: dict[str, Any] = {}
         while time.monotonic() < deadline:

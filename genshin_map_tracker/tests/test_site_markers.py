@@ -23,8 +23,9 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><script src="/leaflet
 window.loggedIn = true;
 (function () {
   const m = L.map('map').setView([0.1, 0.4], 12);
+  // 'cover' (Geoculus) está exatamente em cima de 'b4' e foi desenhado depois (fica por cima).
   const pts = [['b1', 0.1, 0.4, 0], ['b2', 0.102, 0.4, 0], ['g1', 0.1, 0.403, 1],
-               ['b3', 0.2, 0.5, 0]];
+               ['b3', 0.2, 0.5, 0], ['b4', 0.15, 0.45, 0], ['cover', 0.15, 0.45, 1]];
   const n = pts.length, t = {count: n, ids: [], rowOf: new Map(), mx: new Float64Array(n),
     my: new Float64Array(n), type: new Uint16Array(n), typeKeys: ['o17', 'o6'],
     found: new Uint8Array(n), visible: new Uint8Array(n).fill(1)};
@@ -35,6 +36,16 @@ window.loggedIn = true;
   t.found[3] = 1;
   const Layer = L.Layer.extend({onAdd() {}, onRemove() {}});
   const layer = new Layer(); layer.table = t; layer.addTo(m);
+  // Como o hitTest do site: linhas sob o ponto, a de cima (desenhada depois) primeiro.
+  layer.hitTest = (cp) => {
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const s0 = m.options.crs.scale(0);
+      const q = m.latLngToContainerPoint(m.unproject(L.point(t.mx[i] * s0, t.my[i] * s0), 0));
+      if (Math.abs(q.x - cp.x) <= 14 && cp.y - q.y <= 24 && q.y - cp.y <= 8) out.push(i);
+    }
+    return out;
+  };
   m.on('click', e => {
     const cp = e.containerPoint; let best = -1, bd = 1e9;
     for (let i = 0; i < n; i++) {
@@ -111,6 +122,17 @@ def test_mark_found_ui(site: MapBrowser) -> None:
 def test_refuses_wrong_marker_type(site: MapBrowser) -> None:
     assert site.mark_found_ui("g1", expect=("Baú Comum", "Baú Sofisticado")) == "wrong_marker"
     assert site.mark_found_ui("b1", expect=("Baú Comum", "Baú Sofisticado")) == "marked"
+
+
+def test_covered_icon_is_not_clicked(site: MapBrowser) -> None:
+    zoom_before = site.state()["zoom"]
+    assert site.mark_found_ui("b4") == "overlap"
+    assert site.state()["zoom"] == zoom_before, "volta ao zoom do usuário mesmo sem clicar"
+    found = site._page.evaluate(
+        "() => { let L; window.__gmt.map().eachLayer(l => { if (l.table) L = l; });"
+        " return Array.from(L.table.found); }"
+    )
+    assert found[4] == 0 and found[5] == 0, "não pode marcar nem o baú nem o ícone de cima"
 
 
 def test_mark_requires_login(site: MapBrowser) -> None:

@@ -426,6 +426,7 @@ class App:
             "already": "já estava marcado",
             "need_login": "o site pediu login (entre na sua conta no Chrome do gmt)",
             "wrong_marker": "o marcador aberto não era desse tipo; marque no site",
+            "overlap": "ícone coberto por outro mesmo no zoom máximo; marque no site",
         }.get(result, f"não deu para marcar ({result}); marque no site")
         self.console.action(f"{name} {target.id}: {msg} ({reason})")
         if self.store is not None and result in ("marked", "already"):
