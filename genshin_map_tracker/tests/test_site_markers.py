@@ -43,18 +43,21 @@ window.loggedIn = true;
       const d = q.distanceTo(cp); if (d < bd) { bd = d; best = i; }
     }
     if (best < 0 || bd > 15) return;
-    const div = document.createElement('div');
-    const title = t.type[best] ? 'Geoculus' : 'Baú Comum';
+    // Cartão do próprio site (como no appsample real), fora do Leaflet.
+    let card = document.getElementById('card');
+    if (!card) { card = document.createElement('div'); card.id = 'card';
+      card.style.cssText = 'position:fixed;left:500px;top:100px;background:#fff;padding:8px';
+      document.body.appendChild(card); }
+    const title = t.type[best] ? 'Geoculus' : 'Baú Sofisticado';
     const action = t.found[best] ? '<span>Encontrado</span>'
-                                 : '<button class="btn btn-success">Marcar</button>';
-    div.innerHTML = '<b>' + title + '</b>' + action;
-    const btn = div.querySelector('button');
+      : '<button class="btn btn-sm btn-success px-5">Marcar como encontrado</button>';
+    card.innerHTML = '<b>' + title + '</b><div>Baú · Ocultar tudo</div>' + action;
+    const btn = card.querySelector('button');
     if (btn) btn.onclick = () => {
-      if (window.loggedIn) t.found[best] = 1;
+      if (window.loggedIn) { t.found[best] = 1; card.innerHTML = '<b>' + title + '</b>'; }
       else { const d = document.createElement('div'); d.setAttribute('role', 'dialog');
              d.textContent = 'Entrar'; document.body.appendChild(d); }
     };
-    L.popup().setLatLng(e.latlng).setContent(div).openOn(m);
   });
 })();
 </script></body></html>"""
@@ -103,6 +106,11 @@ def test_mark_found_ui(site: MapBrowser) -> None:
     assert site.mark_found_ui("b1") == "already"
     assert site.mark_found_ui("b3") == "already"
     assert site.mark_found_ui("nao-existe") == "not_found"
+
+
+def test_refuses_wrong_marker_type(site: MapBrowser) -> None:
+    assert site.mark_found_ui("g1", expect=("Baú Comum", "Baú Sofisticado")) == "wrong_marker"
+    assert site.mark_found_ui("b1", expect=("Baú Comum", "Baú Sofisticado")) == "marked"
 
 
 def test_mark_requires_login(site: MapBrowser) -> None:

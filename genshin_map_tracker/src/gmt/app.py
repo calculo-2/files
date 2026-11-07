@@ -14,14 +14,14 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, TextIO
+from typing import Any, Protocol, TextIO
 
 from gmt.data.markers import Marker, MarkerStore
 from gmt.detect.events import CollectDetector, CollectEvent
 from gmt.detect.resolver import ResolverConfig, decide, kinds_for_event, resolve
 from gmt.geo.calibration import Calibration
 from gmt.localization.localizer import Fix, Localizer
-from gmt.vision.minimap import Image, crop_minimap
+from gmt.vision.minimap import Image, crop_minimap, find_player_arrow
 from gmt.vision.regions import minimap_circle
 
 log = logging.getLogger(__name__)
@@ -167,10 +167,25 @@ class AppOptions:
     radius: float = 0.0  # unidades do site; 0 = automático pelo tamanho do minimapa
     radius_fraction: float = 0.12  # raio automático = fração do raio do minimapa no mapa
     lost_dir: Path | None = None  # salva imagens dos momentos em que a posição se perde
+    confirm_timeout: float = 30.0  # s esperando você confirmar um caso incerto no site
+    require_arrow: bool = True  # só localiza com a seta do jogador no centro do minimapa
+    uncertain_log: Path | None = None  # registro dos casos marcados sem confirmação
     max_lost_images: int = 40
 
 
 EVENT_NAMES = {"chest": "baú"}
+
+
+@dataclass
+class _PendingMark:
+    """Coleta com dúvida esperando confirmação no site."""
+
+    deadline: float  # time.monotonic()
+    candidates: list[Any]  # SiteMarker, do mais provável ao menos
+    kind: str
+    layer: str
+    name: str
+    reason: str
 
 
 class App:
@@ -196,6 +211,8 @@ class App:
         self.paused = threading.Event()
         self._site_types: dict[str, tuple[str, ...]] | None = None
         self._lost_saved = 0
+        self._pending: list[_PendingMark] = []
+        self._hidden = False
         self._panel_t = -1e9
         self.last_fix: Fix | None = None
         self.last_site: tuple[float, float] | None = None
@@ -216,7 +233,10 @@ class App:
         if self.paused.is_set():
             return None
         h, w = frame.shape[:2]
-        mm = crop_minimap(frame, minimap_circle(w, h, self.minimap_ref))  # type: ignore[arg-type]
+        circle = minimap_circle(w, h, self.minimap_ref)  # type: ignore[arg-type]
+        if self.options.require_arrow and not self._minimap_visible(frame, circle, t):
+            return None
+        mm = crop_minimap(frame, circle)
         fix = self.localizer.update(mm, t)
         site = None
         if fix.ok and fix.layer is not None and fix.x is not None and fix.y is not None:
@@ -242,7 +262,26 @@ class App:
 
         self.console.status(fix, site, t)
         self._panel_status(fix, t)
+        self._process_pending()
         return fix
+
+    def _minimap_visible(self, frame: Image, circle: Any, t: float) -> bool:
+        """A seta do jogador fica sempre no centro do minimapa. Sem ela ali, o mapa grande
+        ou um menu está aberto, e o canto da tela mostra outra coisa: não localiza."""
+        arrow = find_player_arrow(frame, circle, search=0.2)
+        ok = arrow is not None and math.hypot(arrow.x - circle.cx, arrow.y - circle.cy) <= (
+            0.12 * circle.r
+        )
+        if not ok and not self._hidden:
+            self._hidden = True
+            self.console.action("minimapa oculto (mapa ou menu aberto): localização pausada")
+            setter = getattr(self.browser, "set_status", None)
+            if setter is not None:
+                setter("Minimapa oculto: mapa ou menu aberto", False)
+        elif ok and self._hidden:
+            self._hidden = False
+            self.console.action("minimapa de volta: retomando")
+        return ok
 
     def _panel_status(self, fix: Fix, t: float) -> None:
         """Status no painel flutuante do mapa (no máximo 1x por segundo)."""
@@ -349,25 +388,83 @@ class App:
             self.console.action(f"{name}: nenhum marcador pendente por perto no site ({reason})")
             return True
         if decision == "mark" and self.options.auto_mark:
-            target = pending[0]
-            result = self.browser.mark_found_ui(target.id)  # type: ignore[attr-defined]
-            msg = {
-                "marked": "marcado no site",
-                "already": "já estava marcado",
-                "need_login": "o site pediu login (entre na sua conta no Chrome do gmt)",
-            }.get(result, f"não deu para marcar ({result}); marque no site")
-            self.console.action(f"{name} {target.id}: {msg} ({reason})")
-            if self.store is not None and result in ("marked", "already"):
-                self.store.upsert([Marker(target.id, event.kind, fix.layer, target.x, target.y)])
-                self.store.mark_found(target.id, how="auto")
+            self._mark_site(pending[0], event.kind, fix.layer, name, reason, "auto")
             return True
-        self.console.action(f"{name}: confirme no site qual foi ({reason})")
+        self.console.action(
+            f"{name}: confirme no site qual foi ({reason}); "
+            f"sem resposta em {self.options.confirm_timeout:.0f} s marco o mais provável"
+        )
         unproject = getattr(self.browser, "unproject", None)
         for i, m in enumerate(pending[:3], 1):
             ll = unproject(m.x, m.y, zoom) if unproject is not None else None
             if ll is not None:
-                self.browser.highlight(ll[0], ll[1], f"{name}? ({i})")
+                self.browser.highlight(
+                    ll[0], ll[1], f"{name}? ({i})", seconds=self.options.confirm_timeout
+                )
+        self._pending.append(
+            _PendingMark(
+                time.monotonic() + self.options.confirm_timeout,
+                pending[:3],
+                event.kind,
+                fix.layer,
+                name,
+                reason,
+            )  # fmt: skip
+        )
         return True
+
+    def _mark_site(
+        self, target: Any, kind: str, layer: str, name: str, reason: str, how: str
+    ) -> str:
+        from gmt.web.appsample import KIND_NAMES
+
+        kinds = kinds_for_event(kind)
+        expect = tuple(n for k in kinds for n in KIND_NAMES.get(k, ()))
+        result: str = self.browser.mark_found_ui(target.id, expect=expect)  # type: ignore[union-attr]
+        msg = {
+            "marked": "marcado no site",
+            "already": "já estava marcado",
+            "need_login": "o site pediu login (entre na sua conta no Chrome do gmt)",
+            "wrong_marker": "o marcador aberto não era desse tipo; marque no site",
+        }.get(result, f"não deu para marcar ({result}); marque no site")
+        self.console.action(f"{name} {target.id}: {msg} ({reason})")
+        if self.store is not None and result in ("marked", "already"):
+            self.store.upsert([Marker(target.id, kind, layer, target.x, target.y)])
+            self.store.mark_found(target.id, how=how)
+        return result
+
+    def _process_pending(self) -> None:
+        """Casos incertos: se a pessoa não marcou no site a tempo, marca o mais provável."""
+        if not self._pending:
+            return
+        now = time.monotonic()
+        still: list[_PendingMark] = []
+        for p in self._pending:
+            if now < p.deadline:
+                still.append(p)
+                continue
+            is_found = getattr(self.browser, "site_marker_found", None)
+            chosen = next((c for c in p.candidates if is_found and is_found(c.id)), None)
+            if chosen is not None:
+                self.console.action(f"{p.name} {chosen.id}: confirmado por você no site")
+                self._log_uncertain(p, chosen.id, "confirmado por você")
+                continue
+            target = p.candidates[0]
+            result = self._mark_site(target, p.kind, p.layer, p.name, "sem confirmação", "incerto")
+            self._log_uncertain(p, target.id, f"marcado sem confirmação ({result})")
+        self._pending = still
+
+    def _log_uncertain(self, p: _PendingMark, chosen: str, outcome: str) -> None:
+        path = self.options.uncertain_log
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cands = ", ".join(f"{c.id} a {c.distance:.0f}px" for c in p.candidates)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                f"[{time.strftime('%H:%M:%S')}] {p.name}: {outcome}: {chosen} "
+                f"| motivo: {p.reason} | candidatos: {cands}\n"
+            )
 
     # ---------------------------------------------------------------- loop
 

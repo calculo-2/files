@@ -186,6 +186,7 @@ class FakeSiteBrowser(FakeBrowser):
     def __init__(self, markers: list[tuple[str, str, float, float, bool]]) -> None:
         super().__init__()
         self.markers = markers  # (id, tipo do site, gx, gy, found)
+        self.found: set[str] = set()
 
     def site_categories(self) -> dict[str, tuple[str, ...]]:
         return {"chest": ("o17",), "geoculus": ("o6",)}
@@ -200,9 +201,13 @@ class FakeSiteBrowser(FakeBrowser):
                 out.append(SiteMarker(mid, t, d, found, x, y))
         return sorted(out, key=lambda m: m.distance)
 
-    def mark_found_ui(self, marker_id: str) -> str:
+    def mark_found_ui(self, marker_id: str, expect: tuple[str, ...] = ()) -> str:
         self.calls.append(("mark_ui", marker_id))
+        self.found.add(marker_id)
         return "marked"
+
+    def site_marker_found(self, marker_id: str) -> bool:
+        return marker_id in self.found
 
 
 def test_site_markers_path(world: np.ndarray, index: MapIndex) -> None:
@@ -231,3 +236,47 @@ def test_site_markers_path(world: np.ndarray, index: MapIndex) -> None:
     assert ("mark_ui", "bau-perto") in browser.calls
     assert store.found_ids() == {"bau-perto"}
     assert any("bau-perto: marcado no site" in line for line in console.lines)
+
+
+def test_uncertain_case_marks_after_timeout(world, index, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Sem confirmação no prazo, marca o mais provável e registra como incerto."""
+    ox, oy = 100_000.0, 200_000.0
+    end = (1000 + 6 * 11 + ox, 1000 + oy)
+    browser = FakeSiteBrowser([
+        ("perto", "o17", end[0] + 1, end[1], False),
+        ("vizinho", "o17", end[0] + 3, end[1], False),
+    ])  # fmt: skip
+    conv = TileConverter(browser, {"teyvat": TileLayer(zoom=14, origin_x=ox, origin_y=oy)})
+    det = FakeDetector({12: CollectEvent("chest", True, 0.0, ("exp do aventureiro",))})
+    log = tmp_path / "incertos.log"
+    opts = AppOptions(radius=10, confirm_timeout=0.0, uncertain_log=log)
+    app = App(
+        Localizer([index]),
+        conv,
+        StatusConsole(io.StringIO()),
+        MinimapConfig(169, 125, 100),
+        browser=browser,
+        store=MarkerStore(":memory:"),
+        detector=det,
+        options=opts,
+    )
+    run_path(app, world)
+    assert ("mark_ui", "perto") in browser.calls
+    text = log.read_text(encoding="utf-8")
+    assert "marcado sem confirmação" in text and "perto" in text
+
+
+def test_pauses_when_minimap_hidden(world: np.ndarray, index: MapIndex) -> None:
+    """Mapa grande ou menu aberto: sem a seta no centro do minimapa, não localiza."""
+    browser = FakeBrowser()
+    console = StatusConsole(io.StringIO())
+    app = App(Localizer([index]), converter(), console, MinimapConfig(169, 125, 100),
+              browser=browser)  # fmt: skip
+    frame = make_game_frame(world, 1000, 1000)
+    hidden = frame.copy()
+    hidden[95:156, 139:200] = 120  # cobre a seta do centro (como quando o mapa grande abre)
+    assert app.step(hidden, 0.0) is None
+    assert browser.calls == []
+    assert any("minimapa oculto" in line for line in console.lines)
+    assert app.step(frame, 1.0) is not None
+    assert any("minimapa de volta" in line for line in console.lines)

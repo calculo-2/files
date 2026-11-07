@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
             auto_mark=cfg.detect.auto_mark,
             radius=cfg.detect.radius,
             lost_dir=cfg.capture.output_dir / "perdido",
+            uncertain_log=cfg.capture.output_dir / "incertos.log",
         ),
     )
     hotkey = GlobalHotkey(cfg.pause_hotkey, app.toggle_pause)
@@ -127,6 +129,18 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     if win is None:
         print("Jogo NÃO encontrado. Abra o Genshin Impact e tente de novo.")
         return 1
+    # Jogo em tela cheia minimiza quando o .bat abre: espera você voltar para ele, para
+    # escolher o método de captura (dxcam) com a janela no lugar certo.
+    if win.is_minimized or not win.is_foreground:
+        console.info("volte para o jogo (Alt+Tab): a captura começa quando ele estiver em foco")
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            now = find_game_window()
+            if now is not None and not now.is_minimized and now.is_foreground:
+                time.sleep(1.5)  # a tela do jogo leva um instante para voltar
+                win = find_game_window() or now
+                break
     try:
         backend = create_backend(cfg.capture.backend, win.client)
     except CaptureError as exc:
@@ -152,7 +166,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
-SESSION_FILES = ("acoes.log", "ocr", "perdido")
+SESSION_FILES = ("acoes.log", "incertos.log", "ocr", "perdido")
 
 
 def _reset_session_files(out: Path) -> None:

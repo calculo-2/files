@@ -244,14 +244,30 @@ SITE_FOUND_JS = r"""
 """
 
 # Botão "marcar como encontrado" do popup: variante "success" do site.
+# A janela do marcador no appsample é um cartão do próprio site (não o popup do Leaflet):
+# título ("Baú Sofisticado"), categoria e o botão verde "Marcar como encontrado".
+# Procura o botão visível pelo texto (ou pela classe btn-success) e o marca para o clique.
 POPUP_JS = r"""
-() => {
-  const pop = document.querySelector('.leaflet-popup');
-  if (!pop) return {open: false};
-  const btn = pop.querySelector('button.btn-success');
-  return {open: true, text: pop.innerText.slice(0, 200), hasButton: !!btn};
+([labels]) => {
+  const norm = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const want = labels.map(norm);
+  const visible = el => { const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 &&
+           r.top < innerHeight && r.left < innerWidth; };
+  document.querySelectorAll('[data-gmt-found]').forEach(e => e.removeAttribute('data-gmt-found'));
+  const buttons = Array.from(document.querySelectorAll('button')).filter(visible);
+  let btn = buttons.find(b => want.includes(norm(b.innerText)));
+  if (!btn) btn = buttons.find(b => /btn-success/.test(b.className) && !b.closest('#gmt-panel'));
+  if (!btn) return {open: false};
+  btn.setAttribute('data-gmt-found', '1');
+  // Sobe até o cartão que contém o botão para ler o título do marcador.
+  let card = btn; for (let i = 0; i < 6 && card.parentElement; i++) card = card.parentElement;
+  return {open: true, hasButton: true, text: card.innerText.slice(0, 300)};
 }
 """
+
+# Rótulos do botão de marcar (o site traduz pela língua da página).
+FOUND_LABELS = ["Marcar como encontrado", "Mark as found", "Marcar como encontrada"]
 
 
 class ActionSink(Protocol):
@@ -262,7 +278,9 @@ class BrowserError(RuntimeError):
     pass
 
 
-MarkResult = Literal["marked", "already", "need_login", "no_popup", "not_found", "failed"]
+MarkResult = Literal[
+    "marked", "already", "need_login", "no_popup", "not_found", "wrong_marker", "failed"
+]
 
 
 @dataclass(frozen=True)
@@ -300,6 +318,7 @@ class MapBrowser:
         self._ctx: Any = None
         self._page: Any = None
         self._last_move = 0.0
+        self._expect: tuple[str, ...] = ()
         self.map_found = False
 
     # -------------------------------------------------------------- ciclo
@@ -453,13 +472,20 @@ class MapBrowser:
             for m in res["markers"]
         ]
 
-    def mark_found_ui(self, marker_id: str, timeout: float = 5.0) -> MarkResult:
+    def site_marker_found(self, marker_id: str) -> bool:
+        """O marcador já está como encontrado no site (por você ou pelo app)?"""
+        return bool(self._eval(SITE_FOUND_JS, [marker_id]))
+
+    def mark_found_ui(
+        self, marker_id: str, timeout: float = 5.0, expect: tuple[str, ...] = ()
+    ) -> MarkResult:
         """Marca pela interface do site, como uma pessoa: abre o marcador e clica no botão.
 
         Só acontece no navegador. Depende de login no site (o progresso fica na conta).
         """
         if self._page is None:
             return "failed"
+        self._expect = expect  # nomes aceitos no título do cartão (ex.: "Baú Comum")
         spot = self._eval(SITE_CENTER_JS, [marker_id])
         if not spot:
             return "not_found"
@@ -478,15 +504,19 @@ class MapBrowser:
         deadline = time.monotonic() + timeout
         popup: dict[str, Any] = {}
         while time.monotonic() < deadline:
-            popup = self._eval(POPUP_JS) or {}
+            popup = self._eval(POPUP_JS, [FOUND_LABELS]) or {}
             if popup.get("open"):
                 break
+            if self._eval(SITE_FOUND_JS, [marker_id]):
+                return "already"
             time.sleep(0.2)
         if not popup.get("open"):
             return "no_popup"
-        if not popup.get("hasButton"):
-            return "already" if self._eval(SITE_FOUND_JS, [marker_id]) else "failed"
-        self._page.click(".leaflet-popup button.btn-success")
+        expect = self._expect
+        if expect and not any(n.lower() in popup.get("text", "").lower() for n in expect):
+            log.warning("Cartão aberto não é do tipo esperado: %r", popup.get("text", "")[:80])
+            return "wrong_marker"
+        self._page.click('[data-gmt-found="1"]')
         while time.monotonic() < deadline + timeout:
             if self._eval(SITE_FOUND_JS, [marker_id]):
                 self._say(f"marcado como encontrado no site: {marker_id}")
