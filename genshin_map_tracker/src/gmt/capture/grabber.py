@@ -49,10 +49,27 @@ def frames(
     stats: CaptureStats,
     duration: float | None = None,
 ) -> Iterator[tuple[Frame, Rect]]:
+    """Gera quadros da janela do jogo no ritmo `fps` (pula os de jogo fora de foco)."""
+    for frame, rect in frames_with_idle(backend, locate, fps, stats, duration, idle_ticks=False):
+        assert frame is not None and rect is not None
+        yield frame, rect
+
+
+def frames_with_idle(
+    backend: CaptureBackend,
+    locate: Callable[[], GameWindow | None],
+    fps: float,
+    stats: CaptureStats,
+    duration: float | None = None,
+    idle_ticks: bool = True,
+) -> Iterator[tuple[Frame | None, Rect | None]]:
     """Gera quadros da janela do jogo no ritmo `fps`.
 
     Pula quadros quando o jogo está minimizado ou fora de foco, para não gastar CPU.
+    Com `idle_ticks`, nesses momentos gera (None, None) uma vez por segundo, para o app
+    continuar cuidando de tarefas que não dependem da tela (ex.: casos pendentes).
     """
+    last_idle = 0.0
     interval = 1.0 / fps
     proc = psutil.Process()
     proc.cpu_percent(None)  # primeira leitura zera o contador
@@ -64,6 +81,9 @@ def frames(
         window = locate()
         if window is None or window.is_minimized or not window.is_foreground:
             stats.skipped_not_focused += 1
+            if idle_ticks and tick - last_idle >= 1.0:
+                last_idle = tick
+                yield None, None
         else:
             frame = backend.grab(window.client)
             if frame is not None:

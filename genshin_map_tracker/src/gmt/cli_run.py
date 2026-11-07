@@ -31,7 +31,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
         TileLayer,
     )
     from gmt.capture.backends import CaptureError, create_backend
-    from gmt.capture.grabber import CaptureStats, frames
+    from gmt.capture.grabber import CaptureStats, frames_with_idle
     from gmt.capture.window import UnsupportedPlatformError, find_game_window
     from gmt.data.markers import MarkerStore
     from gmt.geo.calibration import Calibration
@@ -150,7 +150,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     console.info(f"capturando com {backend.name} a {cfg.capture.fps:g} FPS. Ctrl+C para sair.")
     stats = CaptureStats()
     try:
-        app.run(frames(backend, find_game_window, cfg.capture.fps, stats, args.seconds))
+        app.run(frames_with_idle(backend, find_game_window, cfg.capture.fps, stats, args.seconds))
     except KeyboardInterrupt:
         console.info("encerrado pelo usuário.")
     finally:

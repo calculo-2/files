@@ -470,6 +470,14 @@ class App:
     # ---------------------------------------------------------------- loop
 
     def run(self, frames: object) -> None:
-        """Consome um iterador de (quadro, retângulo) como o de gmt.capture.grabber.frames."""
+        """Consome um iterador de (quadro, retângulo) como o de gmt.capture.grabber.frames.
+
+        Quadro None = jogo fora de foco: não lê a tela, mas resolve os casos pendentes
+        (a pessoa costuma ir ao mapa no outro monitor justamente quando há dúvida).
+        """
         for frame, _rect in frames:  # type: ignore[attr-defined]
+            if frame is None:
+                if not self.paused.is_set():
+                    self._process_pending()
+                continue
             self.step(frame, time.perf_counter())

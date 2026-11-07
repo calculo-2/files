@@ -280,3 +280,52 @@ def test_pauses_when_minimap_hidden(world: np.ndarray, index: MapIndex) -> None:
     assert any("minimapa oculto" in line for line in console.lines)
     assert app.step(frame, 1.0) is not None
     assert any("minimapa de volta" in line for line in console.lines)
+
+
+def test_pending_is_resolved_while_game_unfocused(world, index, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Com dúvida, a pessoa vai olhar o mapa no outro monitor (jogo sem foco): o prazo
+    tem que correr e o baú ser marcado mesmo sem quadros do jogo."""
+    ox, oy = 100_000.0, 200_000.0
+    end = (1000 + 6 * 11 + ox, 1000 + oy)
+    browser = FakeSiteBrowser([
+        ("perto", "o17", end[0] + 1, end[1], False),
+        ("vizinho", "o17", end[0] + 1.5, end[1], False),  # quase no mesmo lugar: dúvida
+    ])  # fmt: skip
+    conv = TileConverter(browser, {"teyvat": TileLayer(zoom=14, origin_x=ox, origin_y=oy)})
+    det = FakeDetector({12: CollectEvent("chest", True, 0.0, ("exp do heroi",))})
+    log = tmp_path / "incertos.log"
+    opts = AppOptions(radius=10, confirm_timeout=0.2, uncertain_log=log)
+    app = App(
+        Localizer([index]),
+        conv,
+        StatusConsole(io.StringIO()),
+        MinimapConfig(169, 125, 100),
+        browser=browser,
+        store=MarkerStore(":memory:"),
+        detector=det,
+        options=opts,
+    )
+    run_path(app, world)  # jogando: o baú é detectado e fica em dúvida
+    assert not any(c[0] == "mark_ui" for c in browser.calls)
+
+    def unfocused():  # type: ignore[no-untyped-def]
+        import time as _t
+
+        for _ in range(5):  # jogo fora de foco: só "ticks" vazios
+            _t.sleep(0.1)
+            yield None, None
+
+    app.run(unfocused())
+    assert ("mark_ui", "perto") in browser.calls
+    assert "marcado sem confirmação" in log.read_text(encoding="utf-8")
+
+
+def test_grabber_idle_ticks() -> None:
+    from gmt.capture.grabber import CaptureStats, frames_with_idle
+
+    from .test_grabber import FakeBackend, _window
+
+    stats = CaptureStats()
+    got = list(frames_with_idle(FakeBackend(), lambda: _window(foreground=False), 20, stats, 1.2))
+    assert got and all(f is None for f, _ in got)
+    assert 1 <= len(got) <= 2  # no máximo 1 por segundo
