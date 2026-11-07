@@ -98,7 +98,7 @@ def test_cooldown_and_ocr_only_on_change() -> None:
     # Imagem muda e volta: OCR roda, mas o evento repetido cai no intervalo de espera.
     det.update(f(0, 0), 2.0)
     assert det.update(f(0, 80), 3.0) == []
-    assert len(det.update(f(0, 0), 8.0) + det.update(f(0, 80), 9.0)) == 1
+    assert len(det.update(f(0, 0), 16.0) + det.update(f(0, 80), 17.0)) == 1
 
 
 def test_region_scaling_and_anchor() -> None:

@@ -10,7 +10,14 @@ from __future__ import annotations
 
 # tipo interno -> nomes dos botões no site (PT-BR)
 KIND_NAMES: dict[str, tuple[str, ...]] = {
-    "chest": ("Baú Comum", "Baú Sofisticado", "Baú Precioso", "Baú Luxuoso", "Baú Estranho"),
+    "chest": (
+        "Baú Comum",
+        "Baú Sofisticado",
+        "Baú Precioso",
+        "Baú Luxuoso",
+        "Baú Estranho",
+        "Santuário das Profundezas",  # um botão por região ("... de Mondstadt" etc.)
+    ),
     "anemoculus": ("Anemoculus",),
     "geoculus": ("Geoculus",),
     "electroculus": ("Electroculus",),
@@ -23,7 +30,7 @@ KIND_NAMES: dict[str, tuple[str, ...]] = {
 
 # Reserva: ids vistos no site em 07/11/2026.
 DEFAULT_TYPE_IDS: dict[str, tuple[str, ...]] = {
-    "chest": ("o17", "o44", "o45", "o46", "o269"),
+    "chest": ("o17", "o44", "o45", "o46", "o269", "o8"),
     "anemoculus": ("o5",),
     "geoculus": ("o6",),
     "electroculus": ("o194",),
@@ -49,6 +56,9 @@ def type_ids_from_buttons(buttons: list[dict[str, str]]) -> dict[str, tuple[str,
     by_title = {b["title"].strip().lower(): b["type"] for b in buttons}
     out: dict[str, tuple[str, ...]] = {}
     for kind, names in KIND_NAMES.items():
-        ids = tuple(by_title[n.lower()] for n in names if n.lower() in by_title)
+        # Nome igual ou começo do nome ("Santuário das Profundezas de Liyue").
+        ids = tuple(
+            t for title, t in by_title.items() if any(title.startswith(n.lower()) for n in names)
+        )
         out[kind] = ids or DEFAULT_TYPE_IDS[kind]
     return out

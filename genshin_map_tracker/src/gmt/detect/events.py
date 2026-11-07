@@ -125,6 +125,8 @@ CHEST_PROMPT_RE = re.compile(
     r"\bba\w{0,2}\s*(" + "|".join(k[:-1] + r"\w?" for k in CHEST_KINDS_PT) + r")\b"
 )
 CHEST_PROMPT_EN = ("common chest", "exquisite chest", "precious chest", "luxurious chest")
+# Santuário das Profundezas (aberto com chave): o site o lista junto com os baús.
+SHRINE_PROMPT = ("santuario das profundezas", "shrine of depths")
 # Recompensa que só baú dá no mundo aberto. Real no jogo: "EXP do Aventureiro".
 # Valem sozinhas (indício fraco): quase só baú dá isso no mundo aberto.
 CHEST_REWARD_WORDS = ("exp do aventureiro", "adventure exp", "gema essencial", "primogem")
@@ -132,6 +134,7 @@ CHEST_REWARD_WORDS = ("exp do aventureiro", "adventure exp", "gema essencial", "
 # Mora ao derrotar inimigos). Vistas em sessões reais: "EXP do Herói" depois de
 # "Baú Sofisticado"; a lista "Obtido" da esquerda.
 CHEST_DROP_WORDS = ("exp do heroi", "heros wit", "mora", "minerio", "obtido")
+EXACT_WORDS = frozenset({"adventure exp", "heros wit", "primogem"})
 
 
 def reward_hits(text: str, words: tuple[str, ...]) -> tuple[str, ...]:
@@ -139,7 +142,9 @@ def reward_hits(text: str, words: tuple[str, ...]) -> tuple[str, ...]:
     norm = normalize(text)
     hits = []
     for w in words:
-        if " " in w:
+        if w in EXACT_WORDS:  # termos em inglês: só o texto exato (evita "Aventureiro EXP")
+            ok = w in norm
+        elif " " in w:
             ok = fuzzy_contains(norm, w)
         else:  # "mora" não pode casar com "Moraes", "obtido" com "obtidos" tudo bem
             ok = re.search(rf"\b{re.escape(w)}", norm) is not None
@@ -159,7 +164,7 @@ def is_chest_prompt(line: str) -> bool:
             nxt = words[i + 1]
             if any(difflib.SequenceMatcher(None, nxt, k).ratio() >= 0.8 for k in CHEST_KINDS_PT):
                 return True
-    return any(fuzzy_contains(text, w) for w in CHEST_PROMPT_EN)
+    return any(fuzzy_contains(text, w) for w in CHEST_PROMPT_EN + SHRINE_PROMPT)
 
 
 OCULUS_WORDS = {
@@ -191,6 +196,8 @@ class DetectorConfig:
     change_level: int = 30  # diferença (0-255) para um pixel contar como mudado
     prompt_memory: float = 8.0  # s: aviso de baú visto há pouco conta como evidência
     cooldown: float = 6.0  # s: ignora repetição do mesmo tipo de coleta
+    # Baú: a lista "Obtido" da esquerda repete as recompensas alguns segundos depois.
+    chest_cooldown: float = 15.0
     min_interval: float = 1.0  # s: OCR no máximo 1x por segundo por região (CPU)
 
 
@@ -294,7 +301,8 @@ class CollectDetector:
 
     def _not_repeated(self, e: CollectEvent) -> bool:
         last = self._last_event.get(e.kind, -1e9)
-        if e.t - last < self.config.cooldown:
+        wait = self.config.chest_cooldown if e.kind == "chest" else self.config.cooldown
+        if e.t - last < wait:
             return False
         self._last_event[e.kind] = e.t
         return True

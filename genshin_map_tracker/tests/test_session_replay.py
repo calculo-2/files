@@ -136,3 +136,62 @@ def test_mora_alone_is_not_a_chest() -> None:
     frame = np.zeros((1080, 1920, 3), np.uint8)
     det.script = {"obtained": ["Obtido", "Mora x300"]}
     assert det.update(frame, 0.0) == []
+
+
+# Terceira sessão real: baú marcado no site e Cryoculus marcado no site. A lista "Obtido"
+# repetiu as recompensas do baú 6 s depois (não pode virar um segundo baú).
+SESSION3 = [
+    (36, "prompt", ["Bau Sofisticado"]),
+    (45, "prompt", ["Bau Sofisticado"]),
+    (
+        48,
+        "prompt",
+        ["Relogio de Bolso de", "Instrutor", "Bandana de", "Aventureiro", "EXP do Heroi"],
+    ),
+    (54, "obtained", ["Gema Essencial x 5", "ExP-do:Heroi x 1"]),
+    (55, "obtained", ["EXP do Heroix1"]),
+    (65, "obtained", ["Obtido", "Cryoculus x1", "Mora x 600"]),
+    (74, "obtained", ["Obtido", "Beterraba Vermelha-x1", "Beterraba Vermelhax1"]),
+    (92, "obtained", ["Obtido", "Pedaco de Ferro x1"]),
+]
+
+
+def test_replay_third_session() -> None:
+    det = Scripted()
+    frame = np.zeros((1080, 1920, 3), np.uint8)
+    events = []
+    for t, region, lines in SESSION3:
+        det.script = {region: lines}
+        events += [(t, e.kind, e.certain) for e in det.update(frame, float(t))]
+    assert events == [(48, "chest", True), (65, "cryoculus", True)]
+
+
+def test_artifact_name_is_not_adventure_exp() -> None:
+    from gmt.detect.events import CHEST_REWARD_WORDS, reward_hits
+
+    assert reward_hits("Bandana de Aventureiro EXP do Heroi", CHEST_REWARD_WORDS) == ()
+    assert reward_hits("Gema Essencial x 5", CHEST_REWARD_WORDS) == ("gema essencial",)
+
+
+def test_all_oculi_with_ocr_noise() -> None:
+    from gmt.detect.events import OCULUS_WORDS, best_kind
+
+    noisy = {
+        "anemoculus": "Anemocu1us", "geoculus": "Geocu|us", "electroculus": "Eletroculus",
+        "dendroculus": "Dendrocuius", "hydroculus": "Hydrocu1us", "pyroculus": "Pyrocuius",
+        "cryoculus": "Cryocu1us", "lunoculus": "Lunoculusx1",
+    }  # fmt: skip
+    for kind, text in noisy.items():
+        assert best_kind(text, OCULUS_WORDS) == kind, text
+
+
+def test_shrine_counts_as_chest() -> None:
+    assert is_chest_prompt("Santuario das Profundezas")
+    from gmt.web.appsample import type_ids_from_buttons
+
+    ids = type_ids_from_buttons([
+        {"title": "Baú Comum", "type": "o17"},
+        {"title": "Santuário das Profundezas de Mondstadt", "type": "o8"},
+        {"title": "Santuário das Profundezas de Liyue", "type": "o9"},
+    ])  # fmt: skip
+    assert set(ids["chest"]) == {"o17", "o8", "o9"}
