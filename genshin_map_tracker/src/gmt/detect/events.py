@@ -126,7 +126,26 @@ CHEST_PROMPT_RE = re.compile(
 )
 CHEST_PROMPT_EN = ("common chest", "exquisite chest", "precious chest", "luxurious chest")
 # Recompensa que só baú dá no mundo aberto. Real no jogo: "EXP do Aventureiro".
+# Valem sozinhas (indício fraco): quase só baú dá isso no mundo aberto.
 CHEST_REWARD_WORDS = ("exp do aventureiro", "adventure exp", "gema essencial", "primogem")
+# Valem só logo depois do aviso de um baú (sozinhas aparecem em outras situações, como
+# Mora ao derrotar inimigos). Vistas em sessões reais: "EXP do Herói" depois de
+# "Baú Sofisticado"; a lista "Obtido" da esquerda.
+CHEST_DROP_WORDS = ("exp do heroi", "heros wit", "mora", "minerio", "obtido")
+
+
+def reward_hits(text: str, words: tuple[str, ...]) -> tuple[str, ...]:
+    """Palavras de recompensa presentes no texto (palavras curtas só como palavra inteira)."""
+    norm = normalize(text)
+    hits = []
+    for w in words:
+        if " " in w:
+            ok = fuzzy_contains(norm, w)
+        else:  # "mora" não pode casar com "Moraes", "obtido" com "obtidos" tudo bem
+            ok = re.search(rf"\b{re.escape(w)}", norm) is not None
+        if ok:
+            hits.append(w)
+    return tuple(hits)
 
 
 def is_chest_prompt(line: str) -> bool:
@@ -231,10 +250,11 @@ class CollectDetector:
             events.append(CollectEvent(kind, True, t, tuple(hits)))
         # O OCR pode quebrar "Gema Essencial" em duas caixas: confere também o texto junto.
         joined = " ".join(seen)
-        rewards = tuple(w for w in CHEST_REWARD_WORDS if fuzzy_contains(joined, w))
-        if rewards:
-            recent_prompt = t - self._last_chest_prompt <= cfg.prompt_memory
-            events.append(CollectEvent("chest", recent_prompt, t, rewards))
+        recent_prompt = t - self._last_chest_prompt <= cfg.prompt_memory
+        strong = reward_hits(joined, CHEST_REWARD_WORDS)
+        drops = reward_hits(joined, CHEST_DROP_WORDS) if recent_prompt else ()
+        if strong or drops:
+            events.append(CollectEvent("chest", recent_prompt, t, strong + drops))
         return [e for e in events if self._not_repeated(e)]
 
     def _read(self, name: str, img: Image, t: float) -> list[str] | None:

@@ -97,3 +97,42 @@ def test_obtained_region_matches_real_frame() -> None:
     x0, y0, x1, y1 = OBTAINED_REGION.rect(1920, 1080)
     # Caixas lidas num quadro real: "Obtido" (165,508) até "...x60" (450,724).
     assert x0 <= 158 and x1 >= 464 and y0 <= 508 and y1 >= 724
+
+
+# Segunda sessão real (Baú Sofisticado), em segundos desde 16:33:00. Baús abertos às
+# 16:33:39 e 16:36:03 ("EXP do Herói" logo após o aviso). "Beterraba Vermelha" (planta)
+# 6 s depois de um aviso e materiais de Acreção 22 s depois não podem virar baú.
+SESSION2 = [
+    (13, "prompt", ["gmento de", "recao", "Amplificacao de", "Acrecao"]),
+    (18, "prompt", ["Bau Sofisticado"]),
+    (24, "prompt", ["Beterraba Vermelha", "Beterraba Vermelha", "Beterraba Vermelha"]),
+    (29, "prompt", ["Bau Sofisticado"]),
+    (34, "prompt", ["Bau Sofisticado"]),
+    (39, "prompt", ["EXPdoHeroi", "Pena de Cauda de", "Aventureiro", "Flor Verde do", "Sortudo"]),
+    (61, "prompt", ["Beterraba Vermelha"]),
+    (127, "prompt", ["Bau Sofisticado"]),
+    (153, "pickup", ["Bau Sofisticado", "Ber"]),
+    (162, "prompt", ["22214"]),
+    (175, "prompt", ["Cristal Etéreo", "Fragmento de", "3Acrecao", "Massa de Acrecao"]),
+    (178, "prompt", ["Massa de Acrecao", "Amplificagaao de", "Acrecao"]),
+    (181, "prompt", ["Bau Sofisticado"]),
+    (183, "prompt", ["EXP do Heroi"]),
+    (206, "prompt", ["Bau Sofisticado"]),
+]
+
+
+def test_replay_second_session() -> None:
+    det = Scripted()
+    frame = np.zeros((1080, 1920, 3), np.uint8)
+    events = []
+    for t, region, lines in SESSION2:
+        det.script = {region: lines}
+        events += [(t, e.kind, e.certain) for e in det.update(frame, float(t))]
+    assert events == [(39, "chest", True), (183, "chest", True)]
+
+
+def test_mora_alone_is_not_a_chest() -> None:
+    det = Scripted()
+    frame = np.zeros((1080, 1920, 3), np.uint8)
+    det.script = {"obtained": ["Obtido", "Mora x300"]}
+    assert det.update(frame, 0.0) == []
