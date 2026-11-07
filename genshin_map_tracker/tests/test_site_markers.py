@@ -15,13 +15,16 @@ from gmt.web.browser import BrowserConfig, MapBrowser  # noqa: E402
 
 # Mesmo formato da tabela do site: mx/my normalizados (0..1), tipo por índice, found por linha.
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><script src="/leaflet.js"></script>
-<style>.leaflet-popup{position:absolute}</style></head><body style="margin:0">
+</head><body style="margin:0">
 <div id="side"><button title="Baú Comum"><img src="https://cdn/gim/markers/o17.png?v=3"></button>
 <button title="Geoculus"><img src="https://cdn/gim/markers/o6.png?v=3"></button></div>
 <div id="map" style="width:1000px;height:700px"></div>
 <script>
 window.loggedIn = true;
 (function () {
+  const store = JSON.parse(localStorage.getItem('replica') || '{"found": {}, "broken": []}');
+  const save = () => localStorage.setItem('replica', JSON.stringify(store));
+  window.replicaBreakClick = (id) => { store.broken.push(id); save(); };
   const m = L.map('map').setView([0.1, 0.4], 12);
   // 'cover' (Geoculus) está exatamente em cima de 'b4' e foi desenhado depois (fica por cima).
   const pts = [['b1', 0.1, 0.4, 0], ['b2', 0.102, 0.4, 0], ['g1', 0.1, 0.403, 1],
@@ -32,10 +35,10 @@ window.loggedIn = true;
   pts.forEach(([id, lat, lng, ty], i) => {
     const p = m.project([lat, lng], 0);
     t.ids.push(id); t.rowOf.set(id, i); t.mx[i] = p.x / 256; t.my[i] = p.y / 256; t.type[i] = ty;
+    if (store.found[id] || id === 'b3') t.found[i] = 1;
   });
-  t.found[3] = 1;
   const Layer = L.Layer.extend({onAdd() {}, onRemove() {}});
-  const layer = new Layer(); layer.table = t; layer.addTo(m);
+  const layer = new Layer(); layer.table = t; layer.selectedRow = -1; layer.addTo(m);
   // Como o hitTest do site: linhas sob o ponto, a de cima (desenhada depois) primeiro.
   layer.hitTest = (cp) => {
     const out = [];
@@ -46,30 +49,41 @@ window.loggedIn = true;
     }
     return out;
   };
-  m.on('click', e => {
-    const cp = e.containerPoint; let best = -1, bd = 1e9;
-    for (let i = 0; i < n; i++) {
-      const s0 = m.options.crs.scale(0);
-      const q = m.latLngToContainerPoint(m.unproject(L.point(t.mx[i] * s0, t.my[i] * s0), 0));
-      const d = q.distanceTo(cp); if (d < bd) { bd = d; best = i; }
-    }
-    if (best < 0 || bd > 15) return;
-    // Cartão do próprio site (como no appsample real), fora do Leaflet.
-    let card = document.getElementById('card');
-    if (!card) { card = document.createElement('div'); card.id = 'card';
-      card.style.cssText = 'position:fixed;left:500px;top:100px;background:#fff;padding:8px';
-      document.body.appendChild(card); }
+  const closeCard = () => { const c = document.getElementById('card'); if (c) c.remove();
+                            layer.selectedRow = -1; };
+  // Cartão do próprio site (como no appsample real), fora do Leaflet.
+  const openCard = (best) => {
+    closeCard();
+    const card = document.createElement('div'); card.id = 'card';
+    card.style.cssText = 'position:fixed;left:500px;top:100px;background:#fff;padding:8px';
+    document.body.appendChild(card);
+    layer.selectedRow = best;
     const title = t.type[best] ? 'Geoculus' : 'Baú Sofisticado';
     const action = t.found[best] ? '<span>Encontrado</span>'
       : '<button class="btn btn-sm btn-success px-5">Marcar como encontrado</button>';
     card.innerHTML = '<b>' + title + '</b><div>Baú · Ocultar tudo</div>' + action;
     const btn = card.querySelector('button');
     if (btn) btn.onclick = () => {
-      if (window.loggedIn) { t.found[best] = 1; card.innerHTML = '<b>' + title + '</b>'; }
-      else { const d = document.createElement('div'); d.setAttribute('role', 'dialog');
-             d.textContent = 'Entrar'; document.body.appendChild(d); }
+      if (window.loggedIn) {
+        t.found[best] = 1; store.found[t.ids[best]] = 1; save();
+        card.innerHTML = '<b>' + title + '</b>';
+      } else { const d = document.createElement('div'); d.setAttribute('role', 'dialog');
+               d.textContent = 'Entrar'; document.body.appendChild(d); }
     };
+  };
+  window.replicaOpen = (id) => openCard(t.rowOf.get(id));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCard(); });
+  m.on('click', e => {
+    const hits = layer.hitTest(e.containerPoint);
+    if (!hits.length) return;
+    const best = hits[0];
+    if (store.broken.includes(t.ids[best])) return;  // clique que não abre nada
+    if (layer.selectedRow === best) { closeCard(); return; }  // clicar de novo fecha
+    openCard(best);
   });
+  // Link direto ?id=... abre o cartão (como o appsample faz).
+  const id = new URLSearchParams(location.search).get('id');
+  if (id && t.rowOf.has(id)) setTimeout(() => openCard(t.rowOf.get(id)), 300);
 })();
 </script></body></html>"""
 
@@ -133,6 +147,23 @@ def test_covered_icon_is_not_clicked(site: MapBrowser) -> None:
         " return Array.from(L.table.found); }"
     )
     assert found[4] == 0 and found[5] == 0, "não pode marcar nem o baú nem o ícone de cima"
+
+
+def test_card_already_open_by_user(site: MapBrowser) -> None:
+    """A pessoa abriu o cartão do baú e não apertou: o app só aperta o botão (sem fechar)."""
+    site._page.evaluate("() => window.replicaOpen('b2')")
+    assert site.mark_found_ui("b2") == "marked"
+
+
+def test_other_card_open_is_closed_first(site: MapBrowser) -> None:
+    site._page.evaluate("() => window.replicaOpen('g1')")
+    assert site.mark_found_ui("b1", expect=("Baú Sofisticado",)) == "marked"
+
+
+def test_link_fallback_when_click_opens_nothing(site: MapBrowser, tmp_path: Path) -> None:
+    site._page.evaluate("() => window.replicaBreakClick('b2')")
+    assert site.mark_found_ui("b2") == "marked"
+    assert "id=b2" in site._page.url
 
 
 def test_mark_requires_login(site: MapBrowser) -> None:

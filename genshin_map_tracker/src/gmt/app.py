@@ -169,6 +169,7 @@ class AppOptions:
     lost_dir: Path | None = None  # salva imagens dos momentos em que a posição se perde
     confirm_timeout: float = 30.0  # s esperando você confirmar um caso incerto no site
     require_arrow: bool = True  # só localiza com a seta do jogador no centro do minimapa
+    hide_frames: int = 3  # quadros seguidos para considerar o minimapa oculto/de volta
     uncertain_log: Path | None = None  # registro dos casos marcados sem confirmação
     max_lost_images: int = 40
 
@@ -213,6 +214,8 @@ class App:
         self._lost_saved = 0
         self._pending: list[_PendingMark] = []
         self._hidden = False
+        self._arrow_last = True
+        self._arrow_streak = 0
         self._panel_t = -1e9
         self.last_fix: Fix | None = None
         self.last_site: tuple[float, float] | None = None
@@ -272,6 +275,12 @@ class App:
         ok = arrow is not None and math.hypot(arrow.x - circle.cx, arrow.y - circle.cy) <= (
             0.12 * circle.r
         )
+        # Quadro sem seta nunca é localizado (evita pulos falsos), mas o aviso só muda
+        # depois de alguns quadros seguidos: a seta some por instantes em combate.
+        self._arrow_streak = self._arrow_streak + 1 if ok == self._arrow_last else 1
+        self._arrow_last = ok
+        if self._arrow_streak < self.options.hide_frames:
+            return ok
         if not ok and not self._hidden:
             self._hidden = True
             self.console.action("minimapa oculto (mapa ou menu aberto): localização pausada")

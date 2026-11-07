@@ -72,6 +72,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
                 compact=s.compact,
                 window=s.window,
                 controls=s.controls,
+                fail_dir=cfg.capture.output_dir / "falhas",
             ),
             sink=console,
         )
@@ -166,7 +167,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
-SESSION_FILES = ("acoes.log", "incertos.log", "ocr", "perdido")
+SESSION_FILES = ("acoes.log", "incertos.log", "ocr", "perdido", "falhas")
 
 
 def _reset_session_files(out: Path) -> None:

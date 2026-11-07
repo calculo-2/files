@@ -275,11 +275,18 @@ def test_pauses_when_minimap_hidden(world: np.ndarray, index: MapIndex) -> None:
     frame = make_game_frame(world, 1000, 1000)
     hidden = frame.copy()
     hidden[95:156, 139:200] = 120  # cobre a seta do centro (como quando o mapa grande abre)
+    # Quadro sem seta nunca é localizado, mas um só (efeito de combate) não gera aviso.
     assert app.step(hidden, 0.0) is None
-    assert browser.calls == []
+    assert not any("minimapa oculto" in line for line in console.lines)
+    for i in range(3):
+        assert app.step(hidden, 0.2 * (i + 1)) is None
     assert any("minimapa oculto" in line for line in console.lines)
-    assert app.step(frame, 1.0) is not None
+    calls = len(browser.calls)
+    assert app.step(hidden, 1.0) is None and len(browser.calls) == calls
+    for i in range(3):
+        app.step(frame, 1.2 + 0.2 * i)
     assert any("minimapa de volta" in line for line in console.lines)
+    assert app.step(frame, 2.0) is not None
 
 
 def test_pending_is_resolved_while_game_unfocused(world, index, tmp_path) -> None:  # type: ignore[no-untyped-def]

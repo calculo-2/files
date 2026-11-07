@@ -259,6 +259,18 @@ SITE_AIM_JS = r"""
 }
 """
 
+# O cartão aberto é deste marcador? A camada do site guarda a linha selecionada.
+SITE_SELECTED_JS = r"""
+([id]) => {
+  const m = window.__gmt && window.__gmt.map();
+  let layer = null;
+  m && m.eachLayer(l => { if (l.table && l.table.rowOf) layer = l; });
+  if (!layer) return null;
+  const row = layer.table.rowOf.get(String(id)) ?? layer.table.rowOf.get(Number(id));
+  return {selected: row !== undefined && layer.selectedRow === row};
+}
+"""
+
 SITE_FOUND_JS = r"""
 ([id]) => {
   const m = window.__gmt && window.__gmt.map();
@@ -335,6 +347,7 @@ class BrowserConfig:
     compact: bool = False  # janela de aplicativo: sem abas nem barra de endereço
     window: tuple[int, int, int, int] | None = None  # x, y, largura, altura (tela inteira)
     controls: bool = True  # painel flutuante do gmt dentro do mapa
+    fail_dir: Path | None = None  # imagens da página quando a marcação falha (diagnóstico)
 
 
 class MapBrowser:
@@ -526,6 +539,25 @@ class MapBrowser:
     def _click_found(self, marker_id: str, spot: dict[str, Any], timeout: float) -> MarkResult:
         if spot.get("found"):
             return "already"
+        state = self._eval(SITE_SELECTED_JS, [marker_id]) or {}
+        popup = self._eval(POPUP_JS, [FOUND_LABELS]) or {}
+        if not (popup.get("open") and state.get("selected")):
+            if popup.get("open"):
+                # Cartão de outro marcador aberto (ex.: a pessoa clicou para conferir):
+                # fecha antes, senão o clique pode só trocar ou fechar o cartão.
+                self._page.keyboard.press("Escape")
+                time.sleep(0.3)
+            popup = self._open_card_by_click(marker_id, timeout)
+            if not popup.get("open") and popup.get("result") is None:
+                popup = self._open_card_by_link(marker_id, timeout)
+            if popup.get("result") is not None:
+                return popup["result"]  # type: ignore[no-any-return]
+            if not popup.get("open"):
+                self._snapshot(f"sem_cartao_{marker_id}")
+                return "no_popup"
+        return self._press_found(marker_id, popup, timeout)
+
+    def _open_card_by_click(self, marker_id: str, timeout: float) -> dict[str, Any]:
         # Espera o mapa redesenhar no zoom máximo e mira num ponto que acerte só este ícone.
         aim: dict[str, Any] | None = None
         for _ in range(3):
@@ -534,28 +566,48 @@ class MapBrowser:
             if aim and aim.get("ok"):
                 break
         if not aim:
-            return "not_found"
+            return {"result": "not_found"}
         if not aim.get("ok"):
             self._say(f"ícone de {marker_id} coberto por outro no mapa; não cliquei")
-            return "overlap"
+            return {"result": "overlap"}
         self._page.mouse.click(aim["x"], aim["y"])
+        return self._wait_card(marker_id, timeout)
+
+    def _open_card_by_link(self, marker_id: str, timeout: float) -> dict[str, Any]:
+        """Plano B: link direto do site para o marcador (?id=...), que abre o cartão dele."""
+        base = self._page.url.split("?")[0].split("#")[0]
+        self._say(f"cartão não abriu no clique; abrindo pelo link do marcador {marker_id}")
+        try:
+            self._page.goto(f"{base}?id={marker_id}", wait_until="domcontentloaded")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Link do marcador falhou: %r", exc)
+            return {}
+        deadline = time.monotonic() + self.config.load_timeout
+        while time.monotonic() < deadline and not (self._eval(STATE_JS) or {}).get("found"):
+            time.sleep(0.5)
+        if self.config.controls:
+            self._eval(CONTROLS_JS)
+        return self._wait_card(marker_id, timeout * 2)
+
+    def _wait_card(self, marker_id: str, timeout: float) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
-        popup: dict[str, Any] = {}
         while time.monotonic() < deadline:
             popup = self._eval(POPUP_JS, [FOUND_LABELS]) or {}
             if popup.get("open"):
-                break
+                return popup
             if self._eval(SITE_FOUND_JS, [marker_id]):
-                return "already"
+                return {"result": "already"}
             time.sleep(0.2)
-        if not popup.get("open"):
-            return "no_popup"
+        return {}
+
+    def _press_found(self, marker_id: str, popup: dict[str, Any], timeout: float) -> MarkResult:
         expect = self._expect
         if expect and not any(n.lower() in popup.get("text", "").lower() for n in expect):
             log.warning("Cartão aberto não é do tipo esperado: %r", popup.get("text", "")[:80])
             return "wrong_marker"
         self._page.click('[data-gmt-found="1"]')
-        while time.monotonic() < deadline + timeout:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             if self._eval(SITE_FOUND_JS, [marker_id]):
                 self._say(f"marcado como encontrado no site: {marker_id}")
                 return "marked"
@@ -563,7 +615,17 @@ class MapBrowser:
                 self._say("o site pediu login: entre na sua conta no Chrome do gmt")
                 return "need_login"
             time.sleep(0.25)
+        self._snapshot(f"botao_sem_efeito_{marker_id}")
         return "failed"
+
+    def _snapshot(self, name: str) -> None:
+        """Imagem da página do mapa para diagnóstico quando a marcação falha."""
+        folder = self.config.fail_dir
+        if folder is None or self._page is None:
+            return
+        with contextlib.suppress(Exception):
+            folder.mkdir(parents=True, exist_ok=True)
+            self._page.screenshot(path=str(folder / f"{time.strftime('%H%M%S')}_{name}.png"))
 
     # ------------------------------------------------------------ internos
 
