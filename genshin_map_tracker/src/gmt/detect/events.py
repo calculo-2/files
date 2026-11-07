@@ -115,8 +115,32 @@ def best_kind(line: str, table: dict[str, tuple[str, ...]], cutoff: float = 0.82
     return kind if score >= cutoff else None
 
 
-CHEST_PROMPT_WORDS = ("bau", "chest")
-CHEST_REWARD_WORDS = ("exp de aventura", "adventure exp", "gema essencial", "primogem")
+# Nomes reais no jogo em PT-BR (conferidos no site e em prints do jogo, 07/11/2026):
+# "Baú Comum", "Baú Sofisticado", "Baú Precioso", "Baú Luxuoso", "Baú Estranho".
+# O aviso tem letra branca sobre fundo claro e o OCR lê "Baú" como "Bat"/"Bau"/"Ba".
+CHEST_KINDS_PT = ("comum", "sofisticado", "precioso", "luxuoso", "estranho")
+CHEST_PROMPT_RE = re.compile(
+    r"\bba\w{0,2}\s*(" + "|".join(k[:-1] + r"\w?" for k in CHEST_KINDS_PT) + r")\b"
+)
+CHEST_PROMPT_EN = ("common chest", "exquisite chest", "precious chest", "luxurious chest")
+# Recompensa que só baú dá no mundo aberto. Real no jogo: "EXP do Aventureiro".
+CHEST_REWARD_WORDS = ("exp do aventureiro", "adventure exp", "gema essencial", "primogem")
+
+
+def is_chest_prompt(line: str) -> bool:
+    """Aviso de interação de baú ("Baú Comum" etc.), tolerando a leitura "Bat Comum"."""
+    text = normalize(line)
+    if CHEST_PROMPT_RE.search(text):
+        return True
+    words = text.split()
+    for i, w in enumerate(words[:-1]):  # "ba?" + tipo do baú parecido (erro de OCR no tipo)
+        if w.startswith("ba") and len(w) <= 4:
+            nxt = words[i + 1]
+            if any(difflib.SequenceMatcher(None, nxt, k).ratio() >= 0.8 for k in CHEST_KINDS_PT):
+                return True
+    return any(fuzzy_contains(text, w) for w in CHEST_PROMPT_EN)
+
+
 OCULUS_WORDS = {
     "anemoculus": ("anemoculus", "anemoculo"),
     "geoculus": ("geoculus", "geoculo"),
@@ -182,23 +206,23 @@ class CollectDetector:
         prompt = self._read("prompt", cfg.prompt_region.crop(frame), t)
         pickup = self._read("pickup", cfg.pickup_region.crop(frame), t)
 
-        if prompt is not None and any(
-            fuzzy_contains(line, w) for line in prompt for w in CHEST_PROMPT_WORDS
-        ):
+        # O aviso do baú e a lista de itens aparecem no mesmo lugar: confere as duas regiões.
+        seen = (prompt or []) + (pickup or [])
+        if any(is_chest_prompt(line) for line in seen):
             self._last_chest_prompt = t
 
         events: list[CollectEvent] = []
-        if pickup is None:
+        if prompt is None and pickup is None:
             return events
         oculi: dict[str, list[str]] = {}
-        for line in pickup:
+        for line in seen:
             kind = best_kind(line, OCULUS_WORDS)
             if kind is not None:
                 oculi.setdefault(kind, []).append(line)
         for kind, hits in oculi.items():
             events.append(CollectEvent(kind, True, t, tuple(hits)))
         # O OCR pode quebrar "Gema Essencial" em duas caixas: confere também o texto junto.
-        joined = " ".join(pickup)
+        joined = " ".join(seen)
         rewards = tuple(w for w in CHEST_REWARD_WORDS if fuzzy_contains(joined, w))
         if rewards:
             recent_prompt = t - self._last_chest_prompt <= cfg.prompt_memory

@@ -104,7 +104,7 @@ def test_chest_event_marks_single_candidate(world: np.ndarray, index: MapIndex) 
         [Marker("bau-1", "chest", "teyvat", lng, lat), Marker("bau-far", "chest", "teyvat", 0, 0)]
     )
     browser = FakeBrowser(can_mark=True)
-    det = FakeDetector({11: CollectEvent("chest", True, 0.0, ("EXP de Aventura",))})
+    det = FakeDetector({11: CollectEvent("chest", True, 0.0, ("EXP do Aventureiro",))})
     console = StatusConsole(io.StringIO())
     app = App(
         Localizer([index]),
@@ -215,7 +215,7 @@ def test_site_markers_path(world: np.ndarray, index: MapIndex) -> None:
     ])  # fmt: skip
     conv = TileConverter(browser, {"teyvat": TileLayer(zoom=14, origin_x=ox, origin_y=oy)})
     store = MarkerStore(":memory:")
-    det = FakeDetector({12: CollectEvent("chest", True, 0.0, ("exp de aventura",))})
+    det = FakeDetector({12: CollectEvent("chest", True, 0.0, ("exp do aventureiro",))})
     console = StatusConsole(io.StringIO())
     app = App(
         Localizer([index]),

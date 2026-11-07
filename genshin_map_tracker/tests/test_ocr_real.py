@@ -39,7 +39,9 @@ def frame_with(texts: dict[str, list[str]]) -> np.ndarray:
 def test_chest_and_oculus_with_real_ocr(ocr: RapidOcr) -> None:
     det = CollectDetector(ocr)
     assert det.update(frame_with({"prompt": ["F   Baú Precioso"]}), 0.0) == []
-    events = det.update(frame_with({"pickup": ["EXP de Aventura ×20", "Gema Essencial ×5"]}), 1.0)
+    events = det.update(
+        frame_with({"pickup": ["EXP do Aventureiro ×20", "Gema Essencial ×5"]}), 1.0
+    )
     assert [(e.kind, e.certain) for e in events] == [("chest", True)]
     events = det.update(frame_with({"pickup": ["Electroculus"]}), 10.0)
     assert [e.kind for e in events] == ["electroculus"]

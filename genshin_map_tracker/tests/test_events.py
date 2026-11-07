@@ -48,11 +48,11 @@ def f(prompt: int, pickup: int) -> np.ndarray:
 
 def test_normalize_and_fuzzy() -> None:
     assert normalize("Baú Precioso!") == "bau precioso"
-    assert fuzzy_contains("EXP de Aventura x50", "exp de aventura")
-    assert fuzzy_contains("EXP de Aventurа", "exp de aventura")  # 'а' cirílico: erro de OCR
+    assert fuzzy_contains("EXP do Aventureiro x50", "exp do aventureiro")
+    assert fuzzy_contains("EXP do Aventureirо", "exp do aventureiro")  # "о" cirílico: erro de OCR
     assert fuzzy_contains("Anemocu1us", "anemoculus")
     assert not fuzzy_contains("Flor Doce", "anemoculus")
-    assert fuzzy_contains("EXPde Aventura x20", "exp de aventura")  # OCR juntou palavras
+    assert fuzzy_contains("EXPdo Aventureiro x20", "exp do aventureiro")  # OCR juntou palavras
 
 
 def test_reward_split_across_boxes() -> None:
@@ -63,14 +63,14 @@ def test_reward_split_across_boxes() -> None:
 
 
 def test_chest_with_prompt_is_certain() -> None:
-    det, _ = detector({50: ["F  Baú Comum"], 80: ["EXP de Aventura x20", "Mora x150"]})
+    det, _ = detector({50: ["F  Baú Comum"], 80: ["EXP do Aventureiro x20", "Mora x150"]})
     assert det.update(f(50, 0), 0.0) == []
     events = det.update(f(0, 80), 1.5)
     assert [(e.kind, e.certain) for e in events] == [("chest", True)]
 
 
 def test_reward_without_prompt_is_uncertain() -> None:
-    det, _ = detector({80: ["EXP de Aventura x20"]})
+    det, _ = detector({80: ["EXP do Aventureiro x20"]})
     events = det.update(f(0, 80), 0.0)
     assert [(e.kind, e.certain) for e in events] == [("chest", False)]
 
@@ -89,7 +89,7 @@ def test_oculus_kinds() -> None:
 
 
 def test_cooldown_and_ocr_only_on_change() -> None:
-    det, ocr = detector({80: ["EXP de Aventura"]})
+    det, ocr = detector({80: ["EXP do Aventureiro"]})
     assert len(det.update(f(0, 80), 0.0)) == 1
     calls = ocr.calls
     # Mesma imagem: não roda OCR de novo.
