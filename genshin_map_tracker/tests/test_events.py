@@ -115,7 +115,7 @@ def test_rate_limit() -> None:
     det, ocr = detector({80: ["Mora"], 81: ["Mora"]})
     det.update(f(0, 80), 0.0)
     det.update(f(0, 0), 0.1)  # mudou, mas cedo demais
-    assert ocr.calls == 2  # 1ª chamada: prompt + pickup
+    assert ocr.calls == 3  # 1ª chamada: prompt + pickup + obtido
 
 
 def test_threaded_detector_does_not_block() -> None:

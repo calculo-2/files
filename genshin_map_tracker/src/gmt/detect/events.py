@@ -70,6 +70,8 @@ class Region:
 # Estimativas iniciais para 1920x1080 (a confirmar com prints reais).
 PROMPT_REGION = Region("prompt", 1150, 420, 520, 260, anchor="right")
 PICKUP_REGION = Region("pickup", 1150, 300, 560, 520, anchor="right")
+# Lista "Obtido" do lado esquerdo (medida em quadro real 1080p: x 158-464, y 508-724).
+OBTAINED_REGION = Region("obtained", 100, 470, 560, 360, anchor="left")
 
 
 def normalize(text: str) -> str:
@@ -165,6 +167,7 @@ class CollectEvent:
 class DetectorConfig:
     prompt_region: Region = PROMPT_REGION
     pickup_region: Region = PICKUP_REGION
+    obtained_region: Region = OBTAINED_REGION
     change_fraction: float = 0.004  # fração de pixels que mudaram para rodar o OCR de novo
     change_level: int = 30  # diferença (0-255) para um pixel contar como mudado
     prompt_memory: float = 8.0  # s: aviso de baú visto há pouco conta como evidência
@@ -195,7 +198,11 @@ class CollectDetector:
         self._crops = 0
         if record_dir is not None:
             record_dir.mkdir(parents=True, exist_ok=True)
-        self._regions = {"prompt": _RegionState(), "pickup": _RegionState()}
+        self._regions = {
+            "prompt": _RegionState(),
+            "pickup": _RegionState(),
+            "obtained": _RegionState(),
+        }
         self._last_chest_prompt = -1e9
         self._last_event: dict[str, float] = {}
         self.recent_text: deque[str] = deque(maxlen=20)
@@ -205,14 +212,15 @@ class CollectDetector:
         cfg = self.config
         prompt = self._read("prompt", cfg.prompt_region.crop(frame), t)
         pickup = self._read("pickup", cfg.pickup_region.crop(frame), t)
+        obtained = self._read("obtained", cfg.obtained_region.crop(frame), t)
 
         # O aviso do baú e a lista de itens aparecem no mesmo lugar: confere as duas regiões.
-        seen = (prompt or []) + (pickup or [])
+        seen = (prompt or []) + (pickup or []) + (obtained or [])
         if any(is_chest_prompt(line) for line in seen):
             self._last_chest_prompt = t
 
         events: list[CollectEvent] = []
-        if prompt is None and pickup is None:
+        if prompt is None and pickup is None and obtained is None:
             return events
         oculi: dict[str, list[str]] = {}
         for line in seen:

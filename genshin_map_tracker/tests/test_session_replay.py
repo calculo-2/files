@@ -74,3 +74,26 @@ def test_chest_prompt_variants() -> None:
         assert is_chest_prompt(text), text
     for text in ["Banco Comum", "Culinaria", "Rosa do Aventureiro", "Massa de Acrecao", "Xil"]:
         assert not is_chest_prompt(text), text
+
+
+def test_reward_in_left_obtained_list() -> None:
+    """A recompensa pode aparecer na lista "Obtido" da esquerda (quadro real 1080p)."""
+    det = Scripted()
+    frame = np.zeros((1080, 1920, 3), np.uint8)
+    det.script = {"prompt": ["Bau Sofisticado"], "pickup": ["Bau Sofisticado", "Be"]}
+    assert det.update(frame, 0.0) == []
+    det.script = {"obtained": ["Obtido", "EXPdoAventureirox100", "Mora x1.250"]}
+    events = det.update(frame, 1.5)
+    assert [(e.kind, e.certain) for e in events] == [("chest", True)]
+    # "EXP do Personagem" (de livros/experiência) não é baú.
+    det2 = Scripted()
+    det2.script = {"obtained": ["Obtido", "EXPdoPersonagemx60"]}
+    assert det2.update(frame, 0.0) == []
+
+
+def test_obtained_region_matches_real_frame() -> None:
+    from gmt.detect.events import OBTAINED_REGION
+
+    x0, y0, x1, y1 = OBTAINED_REGION.rect(1920, 1080)
+    # Caixas lidas num quadro real: "Obtido" (165,508) até "...x60" (450,724).
+    assert x0 <= 158 and x1 >= 464 and y0 <= 508 and y1 >= 724

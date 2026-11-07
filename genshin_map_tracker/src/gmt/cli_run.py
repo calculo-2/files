@@ -244,7 +244,7 @@ def cmd_progress(args: argparse.Namespace, cfg: Config) -> int:
 
 def cmd_detect_test(args: argparse.Namespace, _cfg: Config) -> int:
     """OCR na tela inteira de cada print: mostra onde aparece cada texto."""
-    from gmt.detect.events import PICKUP_REGION, PROMPT_REGION, RapidOcr
+    from gmt.detect.events import OBTAINED_REGION, PICKUP_REGION, PROMPT_REGION, RapidOcr
 
     try:
         ocr = RapidOcr()
@@ -260,7 +260,12 @@ def cmd_detect_test(args: argparse.Namespace, _cfg: Config) -> int:
         boxes = ocr.read_boxes(np.asarray(img, np.uint8))
         debug = img.copy()
         h, w = img.shape[:2]
-        for region, color in ((PROMPT_REGION, (0, 200, 255)), (PICKUP_REGION, (255, 120, 0))):
+        regions = (
+            (PROMPT_REGION, (0, 200, 255)),
+            (PICKUP_REGION, (255, 120, 0)),
+            (OBTAINED_REGION, (0, 255, 120)),
+        )
+        for region, color in regions:
             x0, y0, x1, y1 = region.rect(w, h)
             cv2.rectangle(debug, (x0, y0), (x1, y1), color, 2)
         print(f"\n{Path(name).name}:")
