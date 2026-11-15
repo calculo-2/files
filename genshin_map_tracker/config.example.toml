@@ -45,6 +45,9 @@ radius = 100.0
 # radius = 0          # raio de busca do marcador, em unidades do site; 0 = automático
 # auto_mark = true    # false: nunca marca sozinho, só sugere
 
+# [localization]
+# contornos = true    # false: volta à comparação antiga do minimapa (para comparar)
+
 # [general]
 # database = "out/progresso.db"
 # pause_hotkey = "ctrl+alt+p"

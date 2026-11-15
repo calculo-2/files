@@ -80,6 +80,11 @@ class MapLayerConfig:
 
 
 @dataclass(frozen=True)
+class LocalizationConfig:
+    contours: bool = True  # false: comparação antiga (brilho), para comparar as duas
+
+
+@dataclass(frozen=True)
 class DetectConfig:
     enabled: bool = True
     radius: float = 0.0  # raio de busca do baú, em unidades do site; 0 = automático
@@ -95,6 +100,7 @@ class Config:
     detect: DetectConfig = field(default_factory=DetectConfig)
     database: Path = Path("out/progresso.db")
     pause_hotkey: str = "ctrl+alt+p"
+    localization: LocalizationConfig = field(default_factory=LocalizationConfig)
 
 
 def _window(value: Any) -> tuple[int, int, int, int] | None:
@@ -170,6 +176,8 @@ def load_config(path: Path | None = None) -> Config:
             radius=float(det.get("radius", 0.0)),
             auto_mark=bool(det.get("auto_mark", True)),
         )
+        loc_d = _section(data, "localization")
+        localization = LocalizationConfig(contours=bool(loc_d.get("contornos", True)))
         general = _section(data, "general")
         database = Path(general.get("database", "out/progresso.db"))
         hotkey = str(general.get("pause_hotkey", "ctrl+alt+p"))
@@ -181,4 +189,4 @@ def load_config(path: Path | None = None) -> Config:
         raise ConfigError(f"Valor inválido em {path}: {exc}") from exc
 
     log.info("Configuração carregada de %s", path)
-    return Config(capture, minimap, site, maps, detect, database, hotkey)
+    return Config(capture, minimap, site, maps, detect, database, hotkey, localization)

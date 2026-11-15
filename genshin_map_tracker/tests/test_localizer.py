@@ -160,3 +160,10 @@ def test_kalman_smooths_constant_velocity() -> None:
 def test_kalman_predict_requires_init() -> None:
     with pytest.raises(RuntimeError):
         KalmanFilter2D().predict(0.0)
+
+
+def test_old_brightness_mode_still_works(world: np.ndarray, index: MapIndex) -> None:
+    loc = Localizer([index], LocalizerConfig(contours=False))
+    fixes = [loc.update(make_minimap(world, 1000 + 5 * i, 1000, seed=900 + i), 0.2 * i)
+             for i in range(10)]  # fmt: skip
+    assert sum(f.method == "local" for f in fixes) >= 7

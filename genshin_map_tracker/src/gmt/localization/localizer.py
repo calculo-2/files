@@ -52,6 +52,8 @@ class LocalizerConfig:
     contour_sigma: float = 7.0  # px do minimapa: tamanho do que é "variação suave" e sai
     local_min_score: float = 0.25  # correlação mínima (de contornos); a folga faz o resto
     min_peak_margin: float = 0.15  # o melhor lugar precisa superar o 2º por essa folga
+    # False volta à comparação antiga (brilho bruto, nota mínima 0,5, sem exigir folga).
+    contours: bool = True
     local_template_radius: float = 80.0  # raio do minimapa (px) usado na correlação
     base_margin: float = 0.25  # folga da janela local, em raios do minimapa
     max_speed: float = 1.0  # deslocamento máximo, em raios do minimapa por segundo
@@ -285,23 +287,28 @@ class Localizer:
         if win_s.shape[0] < size or win_s.shape[1] < size or cv2.countNonZero(mask) < 10:
             return None
 
-        # Só contornos: tira a parte suave (escurecimento, cone de visão, tom da neve).
-        sigma = max(0.8, self.config.contour_sigma * scale * f)
-        win_c = _highpass(win_s, sigma)
-        templ_c = _highpass(templ, sigma)
-        # Afasta da borda do círculo e do buraco da seta, onde o passa-alta mistura o que
-        # está fora do minimapa.
-        k = max(3, int(round(3 * sigma)) | 1)
-        mask = cv2.erode(mask, np.ones((k, k), np.uint8))
-        if cv2.countNonZero(mask) < 10:
-            return None
+        contours = self.config.contours
+        if contours:
+            # Só contornos: tira a parte suave (escurecimento, cone de visão, tom da neve).
+            sigma = max(0.8, self.config.contour_sigma * scale * f)
+            win_c = _highpass(win_s, sigma)
+            templ_c = _highpass(templ, sigma)
+            # Afasta da borda do círculo e do buraco da seta, onde o passa-alta mistura o
+            # que está fora do minimapa.
+            k = max(3, int(round(3 * sigma)) | 1)
+            mask = cv2.erode(mask, np.ones((k, k), np.uint8))
+            if cv2.countNonZero(mask) < 10:
+                return None
+        else:
+            win_c, templ_c = win_s.astype(np.float32), templ.astype(np.float32)
+        min_score = self.config.local_min_score if contours else 0.5
 
         raw = cv2.matchTemplate(win_c, templ_c, cv2.TM_CCOEFF_NORMED, mask=mask)
         res: NDArray[np.float32] = np.nan_to_num(raw, nan=-1.0, posinf=-1.0, neginf=-1.0).astype(
             np.float32
         )
         _, score, _, (bx, by) = cv2.minMaxLoc(res)
-        if score < self.config.local_min_score:
+        if score < min_score:
             log.debug("Correlação fraca: %.2f", score)
             return None
         # Terreno repetitivo: se outro lugar da janela é quase tão bom, não escolhe nenhum
@@ -309,7 +316,7 @@ class Localizer:
         others = res.copy()
         cv2.circle(others, (bx, by), max(3, int(size * 0.15)), -1.0, -1)
         second = float(np.max(others)) if others.size else -1.0
-        if score - second < self.config.min_peak_margin:
+        if contours and score - second < self.config.min_peak_margin:
             log.debug("Correlação ambígua: %.2f vs %.2f", score, second)
             return None
         sx, sy = _subpixel(res, bx, by)

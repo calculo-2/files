@@ -36,7 +36,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     from gmt.data.markers import MarkerStore
     from gmt.geo.calibration import Calibration
     from gmt.hotkey import GlobalHotkey
-    from gmt.localization.localizer import Localizer
+    from gmt.localization.localizer import Localizer, LocalizerConfig
     from gmt.localization.mapindex import MapIndex
 
     if not cfg.maps:
@@ -103,7 +103,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
         console.info("banco de marcadores vazio: a coleta será só avisada, não marcada.")
 
     app = App(
-        Localizer(indexes),
+        Localizer(indexes, LocalizerConfig(contours=cfg.localization.contours)),
         converter,
         console,
         cfg.minimap,

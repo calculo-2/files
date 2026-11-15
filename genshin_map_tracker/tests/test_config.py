@@ -108,3 +108,10 @@ def test_site_window(tmp_path: Path) -> None:
     p.write_text("[site]\nwindow = [1, 2]\n", "utf-8")
     with pytest.raises(ConfigError):
         load_config(p)
+
+
+def test_localization_toggle(tmp_path: Path) -> None:
+    p = tmp_path / "config.toml"
+    p.write_text("[localization]\ncontornos = false\n", "utf-8")
+    assert load_config(p).localization.contours is False
+    assert load_config(tmp_path / "nada.toml").localization.contours is True
