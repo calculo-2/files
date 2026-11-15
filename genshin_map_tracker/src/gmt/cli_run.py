@@ -44,6 +44,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
         return 2
 
     _reset_session_files(cfg.capture.output_dir)
+    _debug_log(cfg.capture.output_dir / "localizacao.log")
     console = StatusConsole(log_file=cfg.capture.output_dir / "acoes.log")
     console.info("Genshin Map Tracker: só lê a tela; nada é enviado ao jogo.")
     indexes = [MapIndex.from_file(m.image, name=m.layer) for m in cfg.maps]
@@ -167,7 +168,27 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
-SESSION_FILES = ("acoes.log", "incertos.log", "ocr", "perdido", "falhas")
+SESSION_FILES = ("acoes.log", "incertos.log", "localizacao.log", "ocr", "perdido", "falhas")
+
+
+def _debug_log(path: Path) -> None:
+    """Diagnóstico temporário: motivo de cada falha de localização num arquivo à parte.
+
+    Só vai para o arquivo; o console continua mostrando o de sempre.
+    """
+    import logging
+
+    root = logging.getLogger()
+    for h in root.handlers:  # o console não passa a mostrar as linhas de depuração
+        if h.level == logging.NOTSET:
+            h.setLevel(root.level)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+    for name in ("gmt.localization.localizer", "gmt.app"):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.DEBUG)
+        lg.addHandler(handler)
 
 
 def _reset_session_files(out: Path) -> None:

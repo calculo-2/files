@@ -9,7 +9,8 @@ Duas etapas:
 
 O minimapa do Genshin fica sempre com o norte para cima, então a rotação esperada
 é zero; a escala (pixels do mapa por pixel do minimapa) é aprendida nas buscas
-globais e depois fica fixa.
+globais. Se o zoom do minimapa mudar (o jogo afasta o minimapa em algumas situações),
+a escala é reaprendida depois de duas buscas globais coerentes na nova escala.
 """
 
 from __future__ import annotations
@@ -63,6 +64,8 @@ class LocalizerConfig:
     wide_margin: float = 4.0  # busca ampla em volta da última posição, em raios do minimapa
     recall_time: float = 120.0  # s: por quanto tempo a última posição ajuda a reencontrar
     global_interval: float = 0.5  # s: intervalo mínimo entre buscas no mapa inteiro (CPU)
+    rescale_confirmations: int = 2  # buscas globais seguidas numa escala nova para adotá-la
+    rescale_min_inliers: int = 8  # pontos mínimos para considerar uma escala nova
 
 
 @dataclass(frozen=True)
@@ -100,6 +103,7 @@ class _State:
     last_t: float | None = None
     last_known: tuple[str, float, float, float] | None = None  # camada, x, y, instante
     last_global_t: float = -1e9
+    rescale: list[_Match] = field(default_factory=list)  # candidatos numa escala nova
 
 
 class Localizer:
@@ -113,6 +117,9 @@ class Localizer:
         self._scales: deque[float] = deque(maxlen=25)
         self._kf = KalmanFilter2D()
         self._state = _State()
+        # Diagnóstico: motivos deste quadro (vão para o log de depuração).
+        self._why: list[str] = []
+        self._last_ok_log = -1e9
 
     # ------------------------------------------------------------------ API
 
@@ -128,25 +135,55 @@ class Localizer:
         self._state = _State()
 
     def update(self, minimap: Minimap, t: float) -> Fix:
+        self._why = []
+        fix = self._update(minimap, t)
+        # Rastreio normal: 1 linha por segundo. Falhas: toda linha.
+        if log.isEnabledFor(logging.DEBUG) and (
+            fix.method != "local" or t - self._last_ok_log >= 1.0
+        ):
+            self._last_ok_log = t
+            pos = f"({fix.raw[0]:.0f},{fix.raw[1]:.0f})" if fix.raw else "-"
+            sc = f"{self.scale:.3f}" if self.scale else "?"
+            why = "; ".join(self._why) or "ok"
+            log.debug("t=%.2f %s %s conf=%.2f escala=%s | %s", t, fix.method, pos,
+                      fix.confidence, sc, why)  # fmt: skip
+        return fix
+
+    def _update(self, minimap: Minimap, t: float) -> Fix:
         gray = to_gray(minimap.image)
         st = self._state
         tracking = self._is_tracking(t)
 
         if tracking:
+            self._why.append("local:")
             local = self._match_local(gray, minimap, t)
             if local is not None:
                 return self._accept(local, t, "local")
 
         # Antes do mapa inteiro: busca ampla em volta da última posição conhecida.
         # Resolve a maioria das falhas curtas (minimapa coberto ou borrado por um instante).
+        if st.last_known is not None:
+            self._why.append("perto:")
         near = self._match_near_last(gray, minimap, t)
         if near is not None:
             return self._accept(near, t, "local", reset=not tracking)
 
         if t - st.last_global_t < self.config.global_interval:
+            self._why.append("global: no intervalo")
             return self._miss(t)
         st.last_global_t = t
-        found = self._match_global(gray, minimap)
+        self._why.append("global:")
+        found, rescaled = self._match_global(gray, minimap)
+        if found is None and rescaled is not None:
+            if self._confirm_rescale(rescaled, minimap.circle.r):
+                log.info(
+                    "Zoom do minimapa mudou: escala %.3f -> %.3f. Reaprendendo.",
+                    self.scale or 0.0, rescaled.scale,
+                )  # fmt: skip
+                self._why.append(f"escala nova adotada {rescaled.scale:.3f}")
+                self._scales.clear()
+                return self._accept(rescaled, t, "global", reset=True)
+            self._why.append(f"escala nova {rescaled.scale:.3f} aguardando confirmação")
         if found is not None:
             radius_map = minimap.circle.r * (self.scale or found.scale)
             if not tracking:
@@ -156,7 +193,7 @@ class Localizer:
             if self._confirm_jump(found, radius_map):
                 log.info("Salto confirmado para %s (%.0f, %.0f).", found.layer, found.x, found.y)
                 return self._accept(found, t, "global", reset=True)
-            log.debug("Salto improvável descartado: %s", found)
+            self._why.append(f"salto aguardando confirmação ({found.x:.0f},{found.y:.0f})")
 
         return self._miss(t)
 
@@ -201,12 +238,26 @@ class Localizer:
             st.pending = [m]
         return len(st.pending) >= self.config.teleport_confirmations
 
+    def _confirm_rescale(self, m: _Match, minimap_r: float) -> bool:
+        """Adota uma escala nova só se buscas globais seguidas concordarem nela."""
+        st = self._state
+        prev = st.rescale[-1] if st.rescale else None
+        same = (
+            prev is not None
+            and prev.layer == m.layer
+            and abs(m.scale / prev.scale - 1.0) <= 0.1
+            and math.hypot(m.x - prev.x, m.y - prev.y) <= 0.5 * minimap_r * m.scale
+        )
+        st.rescale = [*st.rescale, m] if same else [m]
+        return len(st.rescale) >= self.config.rescale_confirmations
+
     def _accept(self, m: _Match, t: float, method: FixMethod, reset: bool = False) -> Fix:
         st = self._state
         if reset or st.layer != m.layer:
             self._kf = KalmanFilter2D()
         x, y = self._kf.update(m.x, m.y, t, m.confidence)
         st.layer, st.misses, st.pending, st.last_t = m.layer, 0, [], t
+        st.rescale = []
         st.last_known = (m.layer, x, y, t)
         if method == "global" and self.config.scale is None:
             self._scales.append(m.scale)
@@ -277,6 +328,7 @@ class Localizer:
         x0, y0 = max(int(cx - half), 0), max(int(cy - half), 0)
         x1, y1 = min(int(cx + half) + 1, w), min(int(cy + half) + 1, h)
         if x1 <= x0 or y1 <= y0:
+            self._why.append("fora do mapa")
             return None
         window = index.gray[y0:y1, x0:x1]
         win_s = cv2.resize(window, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
@@ -309,7 +361,7 @@ class Localizer:
         )
         _, score, _, (bx, by) = cv2.minMaxLoc(res)
         if score < min_score:
-            log.debug("Correlação fraca: %.2f", score)
+            self._why.append(f"fraca {score:.2f}")
             return None
         # Terreno repetitivo: se outro lugar da janela é quase tão bom, não escolhe nenhum
         # (melhor segurar a posição prevista do que pular para um lugar parecido).
@@ -317,7 +369,7 @@ class Localizer:
         cv2.circle(others, (bx, by), max(3, int(size * 0.15)), -1.0, -1)
         second = float(np.max(others)) if others.size else -1.0
         if contours and score - second < self.config.min_peak_margin:
-            log.debug("Correlação ambígua: %.2f vs %.2f", score, second)
+            self._why.append(f"ambígua {score:.2f}/{second:.2f}")
             return None
         sx, sy = _subpixel(res, bx, by)
         center = (size - 1) / 2.0
@@ -337,7 +389,10 @@ class Localizer:
             self._matchers[index.name] = m
         return m
 
-    def _match_global(self, gray: NDArray[np.uint8], minimap: Minimap) -> _Match | None:
+    def _match_global(
+        self, gray: NDArray[np.uint8], minimap: Minimap
+    ) -> tuple[_Match | None, _Match | None]:
+        """Melhor posição na escala conhecida e, à parte, a melhor numa escala diferente."""
         cfg = self.config
         up = cfg.upsample
         big = cv2.resize(gray, None, fx=up, fy=up, interpolation=cv2.INTER_CUBIC)
@@ -346,12 +401,14 @@ class Localizer:
         )
         kps, desc = self._sift.detectAndCompute(big, big_mask)
         if desc is None or len(kps) < cfg.min_inliers:
-            return None
+            self._why.append(f"poucos pontos no minimapa ({0 if desc is None else len(kps)})")
+            return None, None
         src_all = np.array([k.pt for k in kps], dtype=np.float32) / up
         center = np.array([minimap.circle.cx, minimap.circle.cy, 1.0])
 
         order = sorted(self.maps, key=lambda n: n != self._state.layer)
         best: _Match | None = None
+        other: _Match | None = None  # escala diferente da aprendida (zoom do minimapa mudou?)
         for name in order:
             index = self.maps[name]
             if len(index.descriptors) < 2:
@@ -361,6 +418,7 @@ class Localizer:
                 p[0] for p in pairs if len(p) == 2 and p[0].distance < cfg.ratio * p[1].distance
             ]
             if len(good) < cfg.min_inliers:
+                self._why.append(f"{name}: {len(good)} pares")
                 continue
             src = src_all[[g.queryIdx for g in good]]
             dst = index.points[[g.trainIdx for g in good]]
@@ -380,26 +438,35 @@ class Localizer:
             rot = math.degrees(math.atan2(m[1, 0], m[0, 0]))
             known = self.scale
             needed = cfg.min_inliers if known is not None else cfg.first_fix_min_inliers
+            desc_txt = f"{name}: {n_inl}/{len(good)} pts esc {scale:.3f} rot {rot:.0f}"
             if n_inl < needed or abs(rot) > cfg.max_rotation_deg:
+                self._why.append(desc_txt + " rejeitado")
                 continue
             if not cfg.min_scale <= scale <= cfg.max_scale:
+                self._why.append(desc_txt + " escala absurda")
                 continue
-            if known is not None and abs(scale / known - 1.0) > cfg.scale_tolerance:
+            off_scale = known is not None and abs(scale / known - 1.0) > cfg.scale_tolerance
+            if off_scale and (cfg.scale is not None or n_inl < cfg.rescale_min_inliers):
+                self._why.append(desc_txt + " fora da escala")
                 continue
+            self._why.append(desc_txt + (" escala nova?" if off_scale else ""))
             x, y = (m @ center).tolist()
             # Confirma com uma correlação independente na posição encontrada; ela também
             # refina a posição. Evita aceitar coincidências de pontos característicos.
             radius_map = minimap.circle.r * scale
             check = self._correlate(gray, minimap, name, x, y, scale, 0.1 * radius_map + 4)
             if check is None:
-                log.debug("Busca global em %s não confirmada pela correlação.", name)
+                self._why.append("não confirmado")
                 continue
             conf = min(1.0, n_inl / (3.0 * cfg.min_inliers)) * math.sqrt(n_inl / len(good))
             conf = min(conf, check.confidence)
             cand = _Match(name, check.x, check.y, scale, float(conf), n_inl)
-            if best is None or cand.inliers > best.inliers:
+            if off_scale:
+                if other is None or cand.inliers > other.inliers:
+                    other = cand
+            elif best is None or cand.inliers > best.inliers:
                 best = cand
-        return best
+        return best, other
 
 
 def _subpixel(res: NDArray[np.float32], x: int, y: int) -> tuple[float, float]:

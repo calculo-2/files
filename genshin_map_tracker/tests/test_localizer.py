@@ -167,3 +167,19 @@ def test_old_brightness_mode_still_works(world: np.ndarray, index: MapIndex) -> 
     fixes = [loc.update(make_minimap(world, 1000 + 5 * i, 1000, seed=900 + i), 0.2 * i)
              for i in range(10)]  # fmt: skip
     assert sum(f.method == "local" for f in fixes) >= 7
+
+
+def test_relearns_scale_when_minimap_zoom_changes(world: np.ndarray, index: MapIndex) -> None:
+    """Sessão real: o minimapa passou a mostrar 3x mais área e a posição ficou perdida."""
+    loc = Localizer([index])
+    for i in range(5):
+        loc.update(make_minimap(world, 1000 + 4 * i, 1000, seed=600 + i), 0.2 * i)
+    assert loc.scale == pytest.approx(2.0, rel=0.02)
+    fixes = [
+        loc.update(make_minimap(world, 1300, 1250, scale=3.0, seed=700 + i), 2.0 + 0.6 * i)
+        for i in range(6)
+    ]
+    assert fixes[0].method != "global", "uma busca isolada na escala nova não basta"
+    assert fixes[-1].ok
+    assert _err(fixes[-1].raw, 1300, 1250) < 4.0
+    assert loc.scale == pytest.approx(3.0, rel=0.03)

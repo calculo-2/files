@@ -171,7 +171,8 @@ class AppOptions:
     require_arrow: bool = True  # só localiza com a seta do jogador no centro do minimapa
     hide_frames: int = 3  # quadros seguidos para considerar o minimapa oculto/de volta
     uncertain_log: Path | None = None  # registro dos casos marcados sem confirmação
-    max_lost_images: int = 40
+    max_lost_images: int = 60
+    lost_snapshot_every: float = 10.0  # s entre imagens enquanto a posição segue perdida
 
 
 EVENT_NAMES = {"chest": "baú"}
@@ -212,6 +213,7 @@ class App:
         self.paused = threading.Event()
         self._site_types: dict[str, tuple[str, ...]] | None = None
         self._lost_saved = 0
+        self._lost_snap_t = -1e9
         self._pending: list[_PendingMark] = []
         self._hidden = False
         self._arrow_last = True
@@ -251,6 +253,11 @@ class App:
         if not fix.ok and not self._was_lost and fix.method == "lost":
             self.console.action("posição PERDIDA; procurando...")
             self._save_lost(frame, mm)
+            self._lost_snap_t = t
+        elif fix.method == "lost" and t - self._lost_snap_t >= self.options.lost_snapshot_every:
+            # Diagnóstico temporário: guarda o minimapa de tempos em tempos enquanto perdido.
+            self._save_lost(frame, mm)
+            self._lost_snap_t = t
         self._was_lost = not fix.ok
 
         if site is not None and self.browser is not None:
@@ -277,6 +284,13 @@ class App:
         )
         # Quadro sem seta nunca é localizado (evita pulos falsos), mas o aviso só muda
         # depois de alguns quadros seguidos: a seta some por instantes em combate.
+        if ok != self._arrow_last:
+            if arrow is None:
+                where = "seta não achada"
+            else:
+                off = math.hypot(arrow.x - circle.cx, arrow.y - circle.cy)
+                where = f"seta área {arrow.area} a {off:.1f} px do centro"
+            log.debug("t=%.2f minimapa %s (%s)", t, "visível" if ok else "oculto", where)
         self._arrow_streak = self._arrow_streak + 1 if ok == self._arrow_last else 1
         self._arrow_last = ok
         if self._arrow_streak < self.options.hide_frames:
