@@ -108,3 +108,14 @@ def test_big_cyan_blob_is_not_the_arrow() -> None:
     frame = np.full((1080, 1920, 3), 60, np.uint8)
     cv2.circle(frame, (169, 125), 25, (249, 220, 12), -1)  # mancha ciano de ~1960 px
     assert find_player_arrow(frame, Circle(169, 125, 100)) is None
+
+
+def test_larger_arrow_blob_still_counts() -> None:
+    """Sessão real: em alguns lugares a seta mede ~550-600 px e o app achava que o mapa
+    estava aberto (pausava a localização a cada poucos segundos)."""
+    import cv2
+
+    frame = np.full((1080, 1920, 3), 60, np.uint8)
+    cv2.circle(frame, (169, 125), 13, (249, 220, 12), -1)  # ~560 px
+    arrow = find_player_arrow(frame, Circle(169, 125, 100), search=0.2)
+    assert arrow is not None and 500 < arrow.area < 700

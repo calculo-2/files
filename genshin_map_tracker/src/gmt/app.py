@@ -286,7 +286,8 @@ class App:
         # depois de alguns quadros seguidos: a seta some por instantes em combate.
         if ok != self._arrow_last:
             if arrow is None:
-                where = "seta não achada"
+                raw = find_player_arrow(frame, circle, search=0.2, max_area=1.0)
+                where = "seta não achada" if raw is None else f"mancha ciano área {raw.area}"
             else:
                 off = math.hypot(arrow.x - circle.cx, arrow.y - circle.cy)
                 where = f"seta área {arrow.area} a {off:.1f} px do centro"
@@ -407,6 +408,8 @@ class App:
         decision, reason = decide(
             [m.distance for m in pending], ResolverConfig(radius=radius), conf
         )
+        if decision == "suggest" and not event.certain:
+            reason = "indício fraco: recompensa de baú sem o aviso de abrir"
         if decision == "none":
             self.console.action(f"{name}: nenhum marcador pendente por perto no site ({reason})")
             return True

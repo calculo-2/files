@@ -80,7 +80,15 @@ class ArrowBlob:
     area: int  # pixels
 
 
-def find_player_arrow(frame: Image, approx: Circle, search: float = 0.3) -> ArrowBlob | None:
+# Área máxima da mancha ciano (fração de r²). Medido: seta 274-600 px com raio 100
+# (passa de 500 em alguns lugares, provavelmente cor parecida encostada na seta);
+# manchas de diálogo ~1650 px.
+ARROW_MAX_AREA = 0.1
+
+
+def find_player_arrow(
+    frame: Image, approx: Circle, search: float = 0.3, max_area: float = ARROW_MAX_AREA
+) -> ArrowBlob | None:
     """Acha a seta ciano do jogador perto do centro estimado do minimapa.
 
     A seta fica sempre no centro do minimapa, então seu centroide dá o centro real.
@@ -104,8 +112,7 @@ def find_player_arrow(frame: Image, approx: Circle, search: float = 0.3) -> Arro
     if area < 0.01 * approx.r**2:
         return None
     # Mancha grande demais não é a seta: em diálogos o canto vira céu/água azul.
-    # Medido: seta real 274-340 px (raio 100); manchas de diálogo ~1650 px.
-    if area > 0.06 * approx.r**2:
+    if area > max_area * approx.r**2:
         return None
     cx, cy = centroids[idx]
     return ArrowBlob(x=float(cx) + x0, y=float(cy) + y0, area=area)
