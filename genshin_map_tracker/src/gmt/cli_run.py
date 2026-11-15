@@ -155,20 +155,31 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
         app.run(frames_with_idle(backend, find_game_window, cfg.capture.fps, stats, args.seconds))
     except KeyboardInterrupt:
         console.info("encerrado pelo usuário.")
+    except Exception:
+        # Registra o erro e ainda assim gera o zip da sessão (antes o zip se perdia).
+        import traceback
+
+        err = cfg.capture.output_dir / "erro.log"
+        err.write_text(traceback.format_exc(), encoding="utf-8")
+        console.info(f"ERRO inesperado; detalhes em {err}")
+        log.exception("Erro inesperado")
     finally:
-        backend.close()
-        hotkey.stop()
-        if detector is not None:
-            detector.close()
-        if browser is not None:
-            browser.close()
-        store.close()
+        import contextlib
+
+        for close in (backend.close, hotkey.stop, store.close,
+                      detector.close if detector is not None else None,
+                      browser.close if browser is not None else None):  # fmt: skip
+            if close is not None:
+                with contextlib.suppress(Exception):
+                    close()
     console.info(f"CPU média do app: {stats.avg_cpu:.1f}% de um núcleo")
     cmd_package(args, cfg)  # já deixa o zip da sessão pronto para enviar
     return 0
 
 
-SESSION_FILES = ("acoes.log", "incertos.log", "localizacao.log", "ocr", "perdido", "falhas")
+SESSION_FILES = (
+    "acoes.log", "incertos.log", "localizacao.log", "erro.log", "ocr", "perdido", "falhas",
+)  # fmt: skip
 
 
 def _debug_log(path: Path) -> None:

@@ -531,6 +531,10 @@ class MapBrowser:
             return "not_found"
         try:
             return self._click_found(marker_id, spot, timeout)
+        except Exception as exc:  # noqa: BLE001 - erro do site nunca derruba o app
+            log.warning("Falha ao marcar %s no site: %s", marker_id, str(exc).splitlines()[0])
+            self._snapshot(f"erro_{marker_id}")
+            return "failed"
         finally:
             zoom = spot.get("prevZoom")
             if zoom is not None:  # volta ao zoom em que o usuário estava
@@ -605,7 +609,7 @@ class MapBrowser:
         if expect and not any(n.lower() in popup.get("text", "").lower() for n in expect):
             log.warning("Cartão aberto não é do tipo esperado: %r", popup.get("text", "")[:80])
             return "wrong_marker"
-        self._page.click('[data-gmt-found="1"]')
+        self._click_button('[data-gmt-found="1"]')
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self._eval(SITE_FOUND_JS, [marker_id]):
@@ -617,6 +621,20 @@ class MapBrowser:
             time.sleep(0.25)
         self._snapshot(f"botao_sem_efeito_{marker_id}")
         return "failed"
+
+    def _click_button(self, selector: str) -> None:
+        """Clica no botão. Se outro elemento da página estiver por cima (barra lateral
+        recolhida, janela estreita), aciona o botão direto pela página."""
+        assert self._page is not None
+        try:
+            self._page.click(selector, timeout=3000)
+        except Exception as exc:  # noqa: BLE001
+            log.info("Botão coberto na página (%s); acionando direto.", type(exc).__name__)
+            self._page.evaluate(
+                "(sel) => { const b = document.querySelector(sel);"
+                " if (b) { b.scrollIntoView({block: 'center'}); b.click(); } }",
+                selector,
+            )
 
     def _snapshot(self, name: str) -> None:
         """Imagem da página do mapa para diagnóstico quando a marcação falha."""

@@ -181,3 +181,21 @@ def test_categories_from_sidebar(site: MapBrowser) -> None:
 def test_type_ids_from_buttons_offline() -> None:
     ids = type_ids_from_buttons([{"title": "Baú Precioso", "type": "o45"}])
     assert ids["chest"] == ("o45",)
+
+
+def test_button_covered_by_other_element(site: MapBrowser) -> None:
+    """Sessão real: a barra lateral/mapa ficava por cima do botão e o clique travava 30 s."""
+    site._page.evaluate(
+        "() => { const d = document.createElement('div');"
+        " d.style.cssText = 'position:fixed;left:480px;top:80px;width:400px;height:200px;"
+        "z-index:9999;background:rgba(0,0,0,.1)'; document.body.appendChild(d); }"
+    )
+    assert site.mark_found_ui("b1") == "marked"
+
+
+def test_site_error_does_not_crash(site: MapBrowser, monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("página travou")
+
+    monkeypatch.setattr(site, "_press_found", boom)
+    assert site.mark_found_ui("b2") == "failed"

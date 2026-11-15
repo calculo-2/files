@@ -443,7 +443,11 @@ class App:
 
         kinds = kinds_for_event(kind)
         expect = tuple(n for k in kinds for n in KIND_NAMES.get(k, ()))
-        result: str = self.browser.mark_found_ui(target.id, expect=expect)  # type: ignore[union-attr]
+        try:
+            result: str = self.browser.mark_found_ui(target.id, expect=expect)  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001 - problema no site não pode parar o rastreio
+            log.exception("Erro ao marcar %s no site", target.id)
+            result = "failed"
         msg = {
             "marked": "marcado no site",
             "already": "já estava marcado",
