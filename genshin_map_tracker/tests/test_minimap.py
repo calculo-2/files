@@ -99,3 +99,12 @@ def test_draw_debug_does_not_modify_input(frame_1080p: tuple[np.ndarray, Circle]
     out = draw_debug(frame, circle)
     np.testing.assert_array_equal(frame, before)
     assert out.shape == frame.shape
+
+
+def test_big_cyan_blob_is_not_the_arrow() -> None:
+    """Em diálogos o canto do minimapa vira uma área azul grande: não é a seta."""
+    import cv2
+
+    frame = np.full((1080, 1920, 3), 60, np.uint8)
+    cv2.circle(frame, (169, 125), 25, (249, 220, 12), -1)  # mancha ciano de ~1960 px
+    assert find_player_arrow(frame, Circle(169, 125, 100)) is None

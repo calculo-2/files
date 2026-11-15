@@ -103,6 +103,10 @@ def find_player_arrow(frame: Image, approx: Circle, search: float = 0.3) -> Arro
     # Seta tem ~290 px com raio 100; descarta manchas pequenas demais.
     if area < 0.01 * approx.r**2:
         return None
+    # Mancha grande demais não é a seta: em diálogos o canto vira céu/água azul.
+    # Medido: seta real 274-340 px (raio 100); manchas de diálogo ~1650 px.
+    if area > 0.06 * approx.r**2:
+        return None
     cx, cy = centroids[idx]
     return ArrowBlob(x=float(cx) + x0, y=float(cy) + y0, area=area)
 

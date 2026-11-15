@@ -89,7 +89,8 @@ def test_follows_and_shows_player(world: np.ndarray, index: MapIndex) -> None:
     app = App(Localizer([index]), converter(), StatusConsole(out), MinimapConfig(169, 125, 100),
               browser=browser)  # fmt: skip
     fixes = run_path(app, world)
-    assert sum(f.ok for f in fixes) >= 10
+    # A 1ª localização pode esperar a próxima busca global (no máximo 2 por segundo).
+    assert sum(f.ok for f in fixes) >= 9
     follows = [c for c in browser.calls if c[0] == "follow"]
     assert follows
     lat, lng = follows[-1][1:]
