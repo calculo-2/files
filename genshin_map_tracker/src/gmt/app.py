@@ -411,7 +411,16 @@ class App:
         if decision == "suggest" and not event.certain:
             reason = "indício fraco: recompensa de baú sem o aviso de abrir"
         if decision == "none":
-            self.console.action(f"{name}: nenhum marcador pendente por perto no site ({reason})")
+            # Diagnóstico: o mais próximo fora do raio (já marcado? posição deslocada?).
+            far = nearby(gx, gy, zoom, radius * 6, types) or []
+            near_txt = "nenhum até 6x o raio"
+            if far:
+                m0 = far[0]
+                state = "já marcado" if m0.found else "pendente"
+                near_txt = (
+                    f"mais próximo {m0.id} a {m0.distance:.0f} px ({state}; raio {radius:.0f})"
+                )
+            self.console.action(f"{name}: nenhum marcador pendente no raio do site ({near_txt})")
             return True
         if decision == "mark" and self.options.auto_mark:
             self._mark_site(pending[0], event.kind, fix.layer, name, reason, "auto")

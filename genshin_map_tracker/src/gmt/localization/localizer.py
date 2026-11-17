@@ -66,6 +66,10 @@ class LocalizerConfig:
     global_interval: float = 0.5  # s: intervalo mínimo entre buscas no mapa inteiro (CPU)
     rescale_confirmations: int = 2  # buscas globais seguidas numa escala nova para adotá-la
     rescale_min_inliers: int = 8  # pontos mínimos para considerar uma escala nova
+    # Terreno quase liso (campo de neve): a correlação fica em 0,15-0,24 mesmo no lugar
+    # certo. Com muitos pontos SIFT coerentes na escala conhecida, basta uma correlação menor.
+    strong_inliers: int = 8  # medido: 7-10 pontos já davam a posição certa na neve
+    strong_min_score: float = 0.12
 
 
 @dataclass(frozen=True)
@@ -314,6 +318,7 @@ class Localizer:
         cy: float,
         scale: float,
         margin: float,
+        min_score: float | None = None,
     ) -> _Match | None:
         """Procura o minimapa (na escala do mapa) numa janela de ±margin em volta de (cx, cy)."""
         index = self.maps[layer]
@@ -353,7 +358,8 @@ class Localizer:
                 return None
         else:
             win_c, templ_c = win_s.astype(np.float32), templ.astype(np.float32)
-        min_score = self.config.local_min_score if contours else 0.5
+        if min_score is None:
+            min_score = self.config.local_min_score if contours else 0.5
 
         raw = cv2.matchTemplate(win_c, templ_c, cv2.TM_CCOEFF_NORMED, mask=mask)
         res: NDArray[np.float32] = np.nan_to_num(raw, nan=-1.0, posinf=-1.0, neginf=-1.0).astype(
@@ -454,7 +460,17 @@ class Localizer:
             # Confirma com uma correlação independente na posição encontrada; ela também
             # refina a posição. Evita aceitar coincidências de pontos característicos.
             radius_map = minimap.circle.r * scale
-            check = self._correlate(gray, minimap, name, x, y, scale, 0.1 * radius_map + 4)
+            strong = (
+                cfg.contours
+                and not off_scale
+                and known is not None
+                and n_inl >= cfg.strong_inliers
+                and abs(scale / known - 1.0) <= 0.05
+            )
+            check = self._correlate(
+                gray, minimap, name, x, y, scale, 0.1 * radius_map + 4,
+                min_score=cfg.strong_min_score if strong else None,
+            )  # fmt: skip
             if check is None:
                 self._why.append("não confirmado")
                 continue
