@@ -58,15 +58,18 @@ def _norm_title(text: str) -> str:
 
 
 def _title_matches(button_title: str, expected: str) -> bool:
-    """Casa título exato ou prefixo com fronteira de palavra (ex.: 'Santuário das Profundezas de Liyue',
-    'Padrão de Chave II', 'Local de Ancoragem do Quebra-mar (Não é possível teleportar)')."""
+    """Casa título exato ou prefixo com fronteira de palavra.
+
+    Ex.: 'Santuário das Profundezas de Liyue', 'Padrão de Chave II',
+    'Local de Ancoragem do Quebra-mar (Não é possível teleportar)'.
+    """
     bt = _norm_title(button_title)
     ex = _norm_title(expected)
     if not bt or not ex:
         return False
     if bt == ex:
         return True
-    # "Mora" não pode casar com "Morango", mas "Santuário das Profundezas" casa com "... de Mondstadt"
+    # "Mora" não casa com "Morango"; "Santuário das Profundezas" casa com "... de Mondstadt"
     # e "Padrão de Chave" casa com "Padrão de Chave IV".
     if ex == "mora":
         return False

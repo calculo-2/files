@@ -46,6 +46,8 @@ radius = 100.0
 # puzzle_fallback = true       # resolve Baús de Enigma/Seelies/Desafios quando abrir o baú final
 # include_respawnables = false # true: rastreia também Especialidades Locais, Minérios e Pesca
 # only_visible_on_site = false # true: ignora categorias desligadas na barra lateral do appsample
+# auto_marcar_em_teste = false # true: marca sozinho também as categorias novas (ainda não
+#                              # conferidas em sessão real). false: só destaca e registra.
 # categories = []              # vazio = todas; ou filtre ex.: ["chest", "oculus", "offering", "waypoint", "puzzle", "mora", "collectable"]
 
 # [localization]

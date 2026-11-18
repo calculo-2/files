@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
-from gmt.data.catalog import CATALOG, label_for_kind, radius_factor_for
+from gmt.data.catalog import CATALOG, OCULUS_KINDS, PUZZLE_KINDS, label_for_kind, radius_factor_for
 from gmt.data.markers import Marker, MarkerStore
 from gmt.detect.events import CollectDetector, CollectEvent
 from gmt.detect.resolver import (
@@ -183,6 +183,13 @@ class AppOptions:
     lost_snapshot_every: float = 10.0  # s entre imagens enquanto a posição segue perdida
     puzzle_fallback: bool = True  # resolve Baús de Enigma quando não há Baú comum no raio
     only_visible_on_site: bool = False  # filtra só categorias visíveis na barra lateral
+    # Categorias novas ainda não conferidas com prints reais: por padrão só destaca no
+    # mapa e registra em incertos.log, sem marcar sozinho. True: trata como baú/oculus.
+    auto_mark_experimental: bool = False
+
+
+# Tipos validados em sessões reais (baús e oculi): podem ser marcados sozinhos.
+VALIDATED_KINDS: frozenset[str] = frozenset({"chest", "oculus", *OCULUS_KINDS})
 
 
 EVENT_NAMES: dict[str, str] = {k: s.label_pt for k, s in CATALOG.items()}
@@ -358,16 +365,24 @@ class App:
         return math.hypot(a[0] - b[0], a[1] - b[1])
 
     def _puzzle_recently_marked_here(self, event: CollectEvent, fix: Fix, base_r: float) -> bool:
-        """Evita marcar um 2º enigma quando 'Desafio Concluído' já marcou o desafio há poucos segundos."""
+        """Evita marcar um 2º enigma logo depois de 'Desafio Concluído' marcar o desafio."""
         if self._last_puzzle_mark is None or not fix.ok or fix.x is None or fix.y is None:
             return False
         pt, px, py = self._last_puzzle_mark
-        return 0 <= (event.t - pt) <= 15.0 and math.hypot(fix.x - px, fix.y - py) <= max(base_r * 2.5, 40.0)
+        return 0 <= (event.t - pt) <= 15.0 and math.hypot(fix.x - px, fix.y - py) <= max(
+            base_r * 2.5, 40.0
+        )
 
-    def _record_puzzle_mark_if_needed(self, tier_kinds: tuple[str, ...], t: float, fix: Fix) -> None:
-        if fix.ok and fix.x is not None and fix.y is not None:
-            if any(CATALOG.get(k) and CATALOG[k].group == "puzzle" for k in tier_kinds):
-                self._last_puzzle_mark = (t, fix.x, fix.y)
+    def _record_puzzle_mark_if_needed(
+        self, tier_kinds: tuple[str, ...], t: float, fix: Fix
+    ) -> None:
+        if (
+            fix.ok
+            and fix.x is not None
+            and fix.y is not None
+            and any(CATALOG.get(k) and CATALOG[k].group == "puzzle" for k in tier_kinds)
+        ):
+            self._last_puzzle_mark = (t, fix.x, fix.y)
 
     def _handle_event(
         self, event: CollectEvent, fix: Fix, site: tuple[float, float] | None, minimap_r: float
@@ -412,7 +427,15 @@ class App:
                 self.console.action(f"{name}: nenhum marcador pendente por perto ({res.reason})")
             return
         if quiet_probe:
-            self.console.info(f"interação detectada: {name} pendente por perto <- {' | '.join(event.evidence)}")
+            self.console.info(
+                f"interação detectada: {name} pendente por perto <- {' | '.join(event.evidence)}"
+            )
+        if res.decision == "mark" and self._experimental(event):
+            self._suggest_only(event, name, [(c.id, d) for c, d in res.candidates], res.reason)
+            for c, _d in res.candidates:
+                if self.browser is not None:
+                    self.browser.highlight(c.y, c.x, f"{name}? (em teste)")
+            return
         if res.decision == "mark" and self.options.auto_mark:
             m = res.marker
             assert m is not None
@@ -432,13 +455,41 @@ class App:
             for i, (m, _d) in enumerate(res.candidates, 1):
                 self.browser.highlight(m.y, m.x, f"{name}? ({i})")
 
+    def _experimental(self, event: CollectEvent) -> bool:
+        return event.kind not in VALIDATED_KINDS and not self.options.auto_mark_experimental
+
+    def _suggest_only(
+        self, event: CollectEvent, name: str, cands: list[tuple[str, float]], reason: str
+    ) -> None:
+        """Categoria em teste: avisa e registra, mas não marca (nem depois do tempo)."""
+        txt = ", ".join(f"{i} a {d:.0f}px" for i, d in cands)
+        self.console.action(
+            f"{name}: categoria em teste, NÃO marco sozinho; confira no mapa ({txt})"
+        )
+        self._panel_event(f"Em teste (confira): {name}")
+        path = self.options.uncertain_log
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                f"[{time.strftime('%H:%M:%S')}] {name}: sugestão (categoria em teste, não marcado)"
+                f" | motivo: {reason} | evidência: {' | '.join(event.evidence)}"
+                f" | candidatos: {txt}\n"
+            )
+
     def _call_nearby(
         self, nearby: Any, gx: float, gy: float, zoom: int, radius: float, types: list[str]
     ) -> list[Any] | None:
         sig = inspect.signature(nearby)
+        res: list[Any] | None
         if "only_visible" in sig.parameters:
-            return nearby(gx, gy, zoom, radius, types, only_visible=self.options.only_visible_on_site)  # type: ignore[no-any-return]
-        return nearby(gx, gy, zoom, radius, types)  # type: ignore[no-any-return]
+            res = nearby(
+                gx, gy, zoom, radius, types, only_visible=self.options.only_visible_on_site
+            )
+        else:
+            res = nearby(gx, gy, zoom, radius, types)
+        return res
 
     def _handle_with_site_markers(
         self,
@@ -462,7 +513,9 @@ class App:
         if self._site_types is None:
             self._site_types = self.browser.site_categories()  # type: ignore[attr-defined]
 
-        base_r = self.options.radius or minimap_r * (fix.scale or 1.0) * self.options.radius_fraction
+        base_r = (
+            self.options.radius or minimap_r * (fix.scale or 1.0) * self.options.radius_fraction
+        )
         factor = radius_factor_for(event.kind, event.context)
         radius = base_r * factor
         allow_puzzle_fb = self.options.puzzle_fallback and not self._puzzle_recently_marked_here(
@@ -487,7 +540,9 @@ class App:
             for tp in types:
                 if tp not in all_queried_types:
                     all_queried_types.append(tp)
-            tier_r = radius * max((radius_factor_for(k) for k in tier), default=1.0) / max(factor, 1e-6)
+            tier_r = (
+                radius * max((radius_factor_for(k) for k in tier), default=1.0) / max(factor, 1e-6)
+            )
             found = self._call_nearby(nearby, gx, gy, zoom, tier_r, types)
             if found is None:
                 return False  # tabela do site indisponível: usa o banco local
@@ -532,9 +587,25 @@ class App:
             return True
 
         if quiet_probe:
-            self.console.info(f"interação detectada: {name} pendente no raio <- {' | '.join(event.evidence)}")
+            self.console.info(
+                f"interação detectada: {name} pendente no raio <- {' | '.join(event.evidence)}"
+            )
 
         expect_kinds = chosen_tier or kinds_for_event(event.kind)
+        if self._experimental(event):
+            if quiet_probe:  # só passou perto (ex.: aviso de estátua): nem avisa
+                return True
+            self._suggest_only(event, name, [(m.id, m.distance) for m in pending[:3]], reason)
+            unproject = getattr(self.browser, "unproject", None)
+            for m in pending[:3]:
+                ll = unproject(m.x, m.y, zoom) if unproject is not None else None
+                if ll is not None:
+                    self.browser.highlight(ll[0], ll[1], f"{name}? (em teste)", seconds=30.0)
+            return True
+        if decision == "mark" and event.kind == "chest" and set(chosen_tier) <= set(PUZZLE_KINDS):
+            # Baú achado só numa categoria de Baú de Enigma: não validado em sessão real.
+            # Vai para confirmação (marca sozinho após o tempo e registra como incerto).
+            decision, reason = "suggest", "baú encontrado só como Baú de Enigma no site"
         if decision == "mark" and self.options.auto_mark:
             res_code = self._mark_site(
                 pending[0], event.kind, expect_kinds, fix.layer, name, reason, "auto"

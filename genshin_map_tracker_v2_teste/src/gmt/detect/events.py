@@ -39,10 +39,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from gmt.data.catalog import (
+    CATALOG,
     MINERAL_SPECS,
     OFFERING_KINDS,
     SPECIALTY_SPECS,
-    CATALOG,
     cooldown_for,
 )
 from gmt.vision.regions import ui_scale
@@ -195,7 +195,13 @@ CHEST_PROMPT_EN = tuple(k for k, _ in CHEST_PROMPT_EN_MAP)
 SHRINE_PROMPT = ("santuario das profundezas", "shrine of depths")
 
 CHEST_REWARD_WORDS = ("exp do aventureiro", "adventure exp", "gema essencial", "primogem")
-CHEST_DROP_WORDS = ("exp do heroi", "heros wit", "mora", "minerio", "obtido")
+# Valem só logo depois do aviso de um baú. "Selo Cryo" etc. (moeda regional) vem
+# na lista de recompensas dos baús de Snezhnaya (visto nas sessões de 07 e 16/11).
+CHEST_DROP_WORDS = (
+    "exp do heroi", "heros wit", "mora", "minerio", "obtido",
+    "selo anemo", "selo geo", "selo electro", "selo dendro", "selo hydro", "selo pyro",
+    "selo cryo",
+)  # fmt: skip
 BLUEPRINT_WORDS = ("diagrama", "furnishing blueprint", "blueprint")
 EXACT_WORDS = frozenset({"adventure exp", "heros wit", "primogem"})
 
@@ -229,26 +235,7 @@ DIRECT_COLLECTABLE_WORDS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# --- Selos Elementais (indicam Caixa de Mora / Pilha de Pedra quando aparecem sem EXP de baú) ---
-ELEMENTAL_SIGIL_WORDS: tuple[str, ...] = (
-    "selo anemo",
-    "selo geo",
-    "selo electro",
-    "selo dendro",
-    "selo hydro",
-    "selo pyro",
-    "selo cryo",
-    "anemo sigil",
-    "geo sigil",
-    "electro sigil",
-    "dendro sigil",
-    "hydro sigil",
-    "pyro sigil",
-    "cryo sigil",
-)
-
-# Mora alta típica de Caixa de Mora / Pilha de Pedras (5.000, 10.000, 15.000, 20.000...).
-HIGH_MORA_RE = re.compile(r"\bmora\s*[x×:]?\s*(?:5|10|15|20|25|30)\s*[., ]?000\b")
+# Quantidade de Mora (só usada logo depois de "Escavar").
 ANY_MORA_AMOUNT_RE = re.compile(r"\bmora\s*[x×:]?\s*([1-9]\d{0,2}(?:[., ]\d{3})+|\d{4,6})\b")
 
 # --- Especialidades Locais e Minérios (usados quando include_respawnables=True) ---
@@ -308,7 +295,9 @@ WARRIOR_PROMPT_WORDS = (
 )
 LOCAL_LEGEND_WORDS = ("lenda local", "local legend")
 RECIPE_RAW_RE = re.compile(r"\b(?:receita|recipe)\s*[:\-]\s*\S{2,}", re.IGNORECASE)
-BLUEPRINT_RAW_RE = re.compile(r"\b(?:diagrama|furnishing blueprint|blueprint)\s*[:\-]\s*\S{2,}", re.IGNORECASE)
+BLUEPRINT_RAW_RE = re.compile(
+    r"\b(?:diagrama|furnishing blueprint|blueprint)\s*[:\-]\s*\S{2,}", re.IGNORECASE
+)
 
 
 def reward_hits(text: str, words: tuple[str, ...]) -> tuple[str, ...]:
@@ -358,7 +347,7 @@ def is_chest_prompt(line: str) -> bool:
 
 
 def _detect_context_trigger(line: str) -> str | None:
-    """Identifica gatilhos de interação que precedem um baú/recompensa (ex.: Escavar, Desafio, Seelie)."""
+    """Gatilhos de interação que precedem um baú (ex.: Escavar, Desafio, Seelie)."""
     norm = normalize(line)
     if not norm:
         return None
@@ -384,7 +373,7 @@ def _detect_context_trigger(line: str) -> str | None:
 def _detect_navigation_or_banner(
     prompt_lines: list[str], banner_lines: list[str]
 ) -> list[tuple[str, bool, str]]:
-    """Detecta Teleportes, Estátuas, Domínios, Observatórios, Desafios Concluídos e Lendas Locais."""
+    """Teleportes, Estátuas, Domínios, Observatórios, Desafios Concluídos e Lendas Locais."""
     found: list[tuple[str, bool, str]] = []
     all_lines = [(ln, "banner") for ln in banner_lines] + [(ln, "prompt") for ln in prompt_lines]
 
@@ -398,11 +387,12 @@ def _detect_navigation_or_banner(
         if "nao e possivel" in norm or "cannot teleport" in norm:
             continue
 
-        # 1. Ponto de Teleporte: no mundo aberto, o prompt [F] só aparece se ainda estiver bloqueado!
-        if any(fuzzy_contains(norm, w) for w in TELEPORT_WORDS):
-            if unlocked or (src == "prompt" and len(norm) <= 48):
-                found.append(("teleport", True, raw))
-                continue
+        # 1. Ponto de Teleporte: no mundo aberto o aviso [F] só aparece se ainda bloqueado.
+        if any(fuzzy_contains(norm, w) for w in TELEPORT_WORDS) and (
+            unlocked or (src == "prompt" and len(norm) <= 48)
+        ):
+            found.append(("teleport", True, raw))
+            continue
 
         # 2. Estátua dos Sete: banner de desbloqueio é certo; prompt sozinho sugere se pendente.
         if any(fuzzy_contains(norm, w) for w in STATUE_WORDS):
@@ -423,8 +413,10 @@ def _detect_navigation_or_banner(
         if any(fuzzy_contains(norm, w) for w in VIEWPOINT_BANNER_WORDS):
             found.append(("viewpoint", True, raw))
             continue
-        if src == "prompt" and len(norm) <= 28 and any(
-             re.search(rf"\b{re.escape(w)}\b", norm) for w in VIEWPOINT_PROMPT_WORDS
+        if (
+            src == "prompt"
+            and len(norm) <= 28
+            and any(re.search(rf"\b{re.escape(w)}\b", norm) for w in VIEWPOINT_PROMPT_WORDS)
         ):
             found.append(("viewpoint", False, raw))
             continue
@@ -494,7 +486,10 @@ class DetectorConfig:
     cooldown: float = 6.0  # s: ignora repetição do mesmo tipo de coleta
     chest_cooldown: float = 15.0  # Baú: a lista "Obtido" repete recompensas segundos depois
     min_interval: float = 1.0  # s: OCR no máximo 1x por segundo por região (CPU)
-    include_respawnables: bool = False  # True: detecta também Especialidades Locais, Minérios e Pesca
+    banner_interval: float = 2.0  # s: aviso central dura alguns segundos; lê menos (CPU)
+    include_respawnables: bool = (
+        False  # True: detecta também Especialidades Locais, Minérios e Pesca
+    )
     enabled_groups: tuple[str, ...] = ()  # vazio = todos os grupos permitidos
 
 
@@ -614,14 +609,23 @@ class CollectDetector:
                 collectables.setdefault(kind, []).append(line)
             elif RECIPE_RAW_RE.search(line):
                 collectables.setdefault("recipe", []).append(line)
+        # Receita/livro dentro da lista de recompensas de um baú é só item do baú.
+        chest_drop_list = (t - self._last_chest_prompt) <= cfg.prompt_memory or bool(
+            reward_hits(" ".join(seen), CHEST_REWARD_WORDS)
+        )
         for kind, hits in collectables.items():
+            if chest_drop_list and kind in ("recipe", "book"):
+                continue
             events.append(CollectEvent(kind, True, t, tuple(hits)))
 
         # 5. Navegação, Desbloqueios, Desafios Concluídos e Lendas Locais (prompt + banner)
         nav_hits = _detect_navigation_or_banner(prompt_lines + pickup_lines, banner_lines)
         by_nav: dict[str, tuple[bool, list[str]]] = {}
         for kind, cert, raw in nav_hits:
-            if kind == "time_trial" and 0 <= t - self._contexts.get("warrior_challenge", -1e9) <= 45:
+            if (
+                kind == "time_trial"
+                and 0 <= t - self._contexts.get("warrior_challenge", -1e9) <= 45
+            ):
                 kind = "warrior_challenge"
             if kind in ("time_trial", "warrior_challenge"):
                 self._contexts[kind] = t
@@ -659,34 +663,15 @@ class CollectDetector:
                 )
             )
 
-        # 7. Caixas de Mora / Pilhas de Pedra / Selos Elementais (só se NÃO for baú normal)
+        # 7. Tesouro enterrado ("Escavar") que dá Mora: só sugestão.
+        # Sessões reais mostraram que "Mora x15000"/"x20000" e "Selo Cryo" aparecem em
+        # recompensas de missão/mecânica regional e em baús comuns; não indicam Caixa de Mora.
         if not chest_detected and not oculi:
             norm_joined = normalize(joined)
-            sigils = reward_hits(joined, ELEMENTAL_SIGIL_WORDS)
-            high_mora = HIGH_MORA_RE.search(norm_joined)
-            recent_investigate = 0 <= t - self._contexts.get("investigate", -1e9) <= 6.0
             recent_dig = 0 <= t - self._contexts.get("buried_chest", -1e9) <= 8.0
-            med_mora = None
-            if recent_investigate or recent_dig:
-                m_amt = ANY_MORA_AMOUNT_RE.search(norm_joined)
-                if m_amt:
-                    digits = int(re.sub(r"\D", "", m_amt.group(1)) or "0")
-                    if digits >= 1000:
-                        med_mora = m_amt.group(0)
-            if sigils or high_mora or med_mora:
-                ev: list[str] = list(sigils)
-                if high_mora:
-                    ev.append(high_mora.group(0))
-                elif med_mora:
-                    ev.append(med_mora)
-                events.append(
-                    CollectEvent(
-                        "mora_chest",
-                        bool(high_mora or (sigils and (recent_investigate or recent_dig)) or med_mora),
-                        t,
-                        tuple(ev),
-                    )
-                )
+            m_amt = ANY_MORA_AMOUNT_RE.search(norm_joined) if recent_dig else None
+            if m_amt and int(re.sub(r"\D", "", m_amt.group(1)) or "0") >= 1000:
+                events.append(CollectEvent("mora_chest", False, t, (m_amt.group(0),)))
 
         # 8. Recursos Respawnáveis (Especialidades Locais, Minérios e Pesca) — opcionais
         if cfg.include_respawnables:
@@ -713,11 +698,12 @@ class CollectDetector:
     def _read(self, name: str, img: Image, t: float) -> list[str] | None:
         """OCR da região se ela mudou; None quando nada mudou."""
         st = self._regions[name]
-        if img.size == 0 or t - st.last_ocr_t < self.config.min_interval:
+        interval = self.config.banner_interval if name == "banner" else self.config.min_interval
+        if img.size == 0 or t - st.last_ocr_t < interval:
             return None
         size = (img.shape[1] // 2 or 1, img.shape[0] // 2 or 1)
         small = np.asarray(cv2.resize(img, size), np.uint8)
-        if name == "banner" and st.last is None and int(small.max()) == 0:
+        if name == "banner" and st.last is None and int(np.max(small)) == 0:
             st.last, st.last_ocr_t = small, t
             return None
         if st.last is not None and st.last.shape == small.shape:

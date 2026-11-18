@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "genshin-map-tracker"
-version = "0.2.0"
+version = "0.2.1"
 description = "Rastreador passivo e anti-ban de objetos interativos para Genshin Impact baseado apenas em captura de tela."
 requires-python = ">=3.11"
 dependencies = [

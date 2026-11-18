@@ -1,16 +1,20 @@
-# Genshin Map Tracker (v0.2.0 — Escopo Expandido & Blindagem Anti-Ban)
+# Genshin Map Tracker (v0.2.1 — versão de TESTE, escopo expandido)
 
 Lê passivamente a imagem da tela do Genshin Impact, descobre onde você está pelo minimapa e
 sincroniza com o mapa interativo [appsample](https://genshin-impact-map.appsample.com/pt/) no
-Chrome do segundo monitor: o mapa segue você em tempo real e **identifica praticamente todos os
-objetos interativos do mundo aberto** (baús por raridade, santuários, todos os oculi, oferendas
-regionais, pontos de teleporte, estátuas, domínios, observatórios, seelies, monetoos, desafios,
-baús enterrados, ~95 tipos de enigmas, caixas de mora, cristais rodopiantes, receitas e, se
-quiser, todas as 64+ especialidades locais, minérios e pontos de pesca).
+Chrome do segundo monitor: o mapa segue você em tempo real e procura muitos tipos de objeto
+interativo (baús por raridade, santuários, oculi, oferendas regionais, teleportes, estátuas,
+domínios, observatórios, desafios, enigmas, colecionáveis e, se quiser, especialidades e minérios).
 
-**Estado:** 125+ testes automatizados cobrindo localização, catálogo completo de objetos
-interativos (PT-BR e Inglês), resolução em cascata, integração web e auditoria anti-ban.
-Detalhes em [AVALIACAO.md](AVALIACAO.md).
+**Estado (honesto):**
+- **Validado em 6 sessões reais** (jogo em PT-BR, 1080p): localização, baús e oculi. Estes são
+  marcados sozinhos no site.
+- **Em teste** (textos escritos sem conferir em prints reais): todo o resto. Por padrão o app
+  **só destaca no mapa e registra em `out/incertos.log`**, sem marcar. Para marcar sozinho também,
+  use `auto_marcar_em_teste = true` em `[detect]` no `config.toml`.
+- O texto lido pelo OCR nas 6 sessões reais foi reproduzido nesta versão: ela gera exatamente os
+  mesmos eventos de baú/oculus da versão estável e nenhum evento falso das categorias novas.
+- 150+ testes automatizados. Detalhes em [AVALIACAO.md](AVALIACAO.md).
 
 ## Por que NÃO usa injetor/extrator (Arquitetura Anti-Ban)
 
@@ -32,14 +36,14 @@ Por isso este projeto mantém e audita automaticamente (`gmt seguranca`) as regr
 
 | Família | O que identifica e marca/sugere no mapa | Modo padrão |
 |---|---|---|
-| **Baús e Raridades** | Baú Comum, Sofisticado, Precioso, Luxuoso, Baú Estranho (pelo aviso ou `Diagrama:`) com desempate automático por raridade | Ligado |
-| **Santuários** | Santuário das Profundezas (todas as nações de Mondstadt a Snezhnaya) | Ligado |
-| **Oculi (8 regiões)** | Anemoculus, Geoculus, Electroculus, Dendroculus, Hydroculus, Pyroculus, Cryoculus, Lunoculus | Ligado |
-| **Oferendas Regionais** | Calcedônia Carmesim, Espato Lúmen, Lanterna Lúmen, Carpa Espiritual, Pluma da Luz Purificadora, Selo Sagrado, Padrão de Chave I–V, Pérola da Lua Antiga, Kuuhenki, Orvalho Kuuvahki, Cristal Kresnik, Gotas de Asas Sombrias, Conjuntos Mnemônicos | Ligado |
-| **Navegação & Mapa** | Ponto de Teleporte, Estação de Alta Velocidade, Ancoragem do Quebra-mar, Estátua dos Sete, Domínio, Observatório | Ligado |
-| **Guias, Desafios e Enigmas** | Seelie Guia, Seelie Electro, Monetoo, Desafios Contra o Tempo, Desafio do Guerreiro/Totem, Baú Enterrado (`Escavar`) e fallback inteligente para as ~95 categorias de **Baú de Enigma** do appsample | Ligado |
-| **Caixas de Mora & Selos** | Baús de Mora (Madeira, Pilha de Pedras, Pedra Destruída, Fontaine, Natlan, Nod-Krai, Lua Gelada, Snezhnaya), Selo Geo, Tesouros Ocultos | Ligado |
-| **Coleção Permanente** | Cristal Rodopiante Radiante, Receitas, Livros/Tabuletas/Inscrições, Lendas Locais, Hilichurl Estranho, Aranara | Ligado |
+| **Baús e Raridades** | Baú Comum, Sofisticado, Precioso, Luxuoso, Baú Estranho (pelo aviso ou `Diagrama:`) com desempate automático por raridade | Marca sozinho |
+| **Santuários** | Santuário das Profundezas (todas as nações de Mondstadt a Snezhnaya) | Marca sozinho (como baú) |
+| **Oculi (8 regiões)** | Anemoculus, Geoculus, Electroculus, Dendroculus, Hydroculus, Pyroculus, Cryoculus, Lunoculus | Marca sozinho |
+| **Oferendas Regionais** | Calcedônia Carmesim, Espato Lúmen, Lanterna Lúmen, Carpa Espiritual, Pluma da Luz Purificadora, Selo Sagrado, Padrão de Chave I–V, Pérola da Lua Antiga, Kuuhenki, Orvalho Kuuvahki, Cristal Kresnik, Gotas de Asas Sombrias, Conjuntos Mnemônicos | Em teste: só destaca |
+| **Navegação & Mapa** | Ponto de Teleporte, Estação de Alta Velocidade, Ancoragem do Quebra-mar, Estátua dos Sete, Domínio, Observatório | Em teste: só destaca |
+| **Guias, Desafios e Enigmas** | Seelie Guia, Seelie Electro, Monetoo, Desafios Contra o Tempo, Desafio do Guerreiro/Totem, Baú Enterrado (`Escavar`) e fallback inteligente para as ~95 categorias de **Baú de Enigma** do appsample | Em teste: só destaca (baú achado só como Baú de Enigma: confirma em 30 s, depois marca e registra) |
+| **Caixas de Mora & Selos** | Baús de Mora (Madeira, Pilha de Pedras, Pedra Destruída, Fontaine, Natlan, Nod-Krai, Lua Gelada, Snezhnaya), Tesouros Ocultos | Em teste: só depois de "Escavar", só destaca |
+| **Coleção Permanente** | Cristal Rodopiante Radiante, Receitas, Livros/Tabuletas/Inscrições, Lendas Locais, Hilichurl Estranho, Aranara | Em teste: só destaca |
 | **Farm / Respawnáveis** | Todas as 64+ Especialidades Locais, 9 Minérios e Pontos de Pesca | Opcional (`iniciar_farm.bat` ou `include_respawnables = true`) |
 
 > **Dica importante sobre a barra lateral do appsample:** você **não precisa** deixar dezenas de

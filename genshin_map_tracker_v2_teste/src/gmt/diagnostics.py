@@ -258,7 +258,10 @@ def _ocr(rep: Report) -> dict[str, Any]:
         rep.say(f"   OCR não instalado: {exc}")
         return {"instalado": False}
     det = CollectDetector(
-        ocr, DetectorConfig(include_respawnables=True, min_interval=0.0, cooldown=0.0, chest_cooldown=0.0)
+        ocr,
+        DetectorConfig(
+            include_respawnables=True, min_interval=0.0, cooldown=0.0, chest_cooldown=0.0
+        ),
     )
     found = []
     events_found = []

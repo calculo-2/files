@@ -11,7 +11,7 @@ from typing import Any
 try:
     import psutil
 except ImportError:  # pragma: no cover - fallback leve quando psutil não está instalado
-    psutil = None  # type: ignore[assignment]
+    psutil = None  # type: ignore[assignment, unused-ignore]
 
 from gmt.capture.backends import CaptureBackend, Frame
 from gmt.capture.window import GameWindow, Rect

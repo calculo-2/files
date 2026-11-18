@@ -90,6 +90,7 @@ class DetectConfig:
     include_respawnables: bool = False  # True: rastreia também Especialidades, Minérios e Pesca
     puzzle_fallback: bool = True  # resolve Baús de Enigma quando não há Baú comum no raio
     only_visible_on_site: bool = False  # True: ignora categorias ocultas na barra lateral do site
+    auto_mark_experimental: bool = False  # True: marca sozinho também categorias em teste
     categories: tuple[str, ...] = ()  # vazio = todas as categorias habilitadas
 
     def __post_init__(self) -> None:
@@ -195,6 +196,7 @@ def load_config(path: Path | None = None) -> Config:
             include_respawnables=bool(det.get("include_respawnables", False)),
             puzzle_fallback=bool(det.get("puzzle_fallback", True)),
             only_visible_on_site=bool(det.get("only_visible_on_site", False)),
+            auto_mark_experimental=bool(det.get("auto_marcar_em_teste", False)),
             categories=_categories(det.get("categories")),
         )
         loc_d = _section(data, "localization")

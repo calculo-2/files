@@ -1,4 +1,20 @@
-# Avaliação técnica e evolução do projeto (v0.2.0)
+# Avaliação técnica e evolução do projeto (v0.2.1)
+
+## 0. O que mudou da v0.2.0 para a v0.2.1 (revisão)
+
+- **Replay das 6 sessões reais**: o texto do OCR de todas as sessões (3.345 leituras) foi
+  reproduzido na v0.2.0. Ela criava eventos falsos de "Caixa de Mora" (Mora x10000-x20000 de
+  recompensa de missão/mecânica regional, e "Selo Cryo", que vem dentro dos baús de Snezhnaya)
+  e de "Receita" (receita que veio dentro de um baú). Corrigido: Caixa de Mora só depois de
+  "Escavar" e só como sugestão; "Selo X" passa a contar como item de baú; receita/livro dentro
+  da lista de um baú é ignorado. Agora o replay dá os mesmos eventos da versão estável.
+- **Categorias não validadas não marcam sozinhas** (padrão): destacam no mapa e vão para
+  `incertos.log`. Opção `auto_marcar_em_teste` para liberar.
+- **Baú resolvido só como "Baú de Enigma"** passa pela confirmação de 30 s (como os incertos).
+- **CPU**: o aviso central do topo é lido no máximo a cada 2 s.
+- **Qualidade**: zero avisos de lint/tipos; arquivos `.bat` com quebra de linha do Windows.
+
+
 
 ## 1. O que foi expandido na v0.2.0
 

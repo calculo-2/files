@@ -112,7 +112,8 @@ CONTROLS_JS = r"""
     box.id = 'gmt-panel';
     box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:100000;display:flex;' +
       'flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;font:13px sans-serif;' +
-      'background:rgba(20,24,32,.9);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.4);max-width:280px';
+      'background:rgba(20,24,32,.9);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.4);' +
+      'max-width:280px';
     box.innerHTML =
       '<div id="gmt-status" style="opacity:.9">gmt: aguardando posição</div>' +
       '<div id="gmt-last" style="font-size:11px;color:#b8d4ff;display:none"></div>' +
@@ -197,7 +198,8 @@ UNPROJECT_JS = r"""
 
 
 # Marcadores do site perto de um ponto (pixel global no zoom dado), lidos da tabela
-# da camada de marcadores do appsample: ids, posição normalizada (mx, my), tipo, "found" e "visible".
+# da camada de marcadores do appsample: ids, posição normalizada (mx, my), tipo,
+# "found" e "visible".
 SITE_NEARBY_JS = r"""
 ([gx, gy, zoom, radius, types, onlyVisible]) => {
   const m = window.__gmt && window.__gmt.map();
@@ -564,7 +566,9 @@ class MapBrowser:
             if popup.get("open"):
                 self._page.keyboard.press("Escape")
                 time.sleep(0.3)
-            popup = self._open_card_by_click(marker_id, timeout) if spot.get("visible", True) else {}
+            popup = (
+                self._open_card_by_click(marker_id, timeout) if spot.get("visible", True) else {}
+            )
             if not popup.get("open") and popup.get("result") is None:
                 popup = self._open_card_by_link(marker_id, timeout)
             if popup.get("result") is not None:

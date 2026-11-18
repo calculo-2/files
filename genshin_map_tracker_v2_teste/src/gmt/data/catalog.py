@@ -32,7 +32,9 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ObjectSpec:
     kind: str
-    group: str  # chest, shrine, oculus, offering, waypoint, puzzle, mora, collectable, specialty, mineral, guide
+    # chest, shrine, oculus, offering, waypoint, puzzle, mora, collectable, specialty,
+    # mineral, guide
+    group: str
     label_pt: str
     permanent: bool = True
     site_titles_pt: tuple[str, ...] = ()
@@ -48,7 +50,8 @@ class ObjectSpec:
 
 
 # Todas as subcategorias de "Baú de Enigma" (Puzzle Chest) do appsample em PT-BR e EN.
-# No appsample, baús que nascem de puzzles/desafios/guias ficam nestas categorias e NÃO em "Baú Comum".
+# No appsample, baús que nascem de puzzles/desafios/guias ficam nestas categorias
+# e NÃO em "Baú Comum".
 PUZZLE_CHEST_TITLES_PT: tuple[str, ...] = (
     "Seelie Guia",
     "Seelie Guia Electro",
@@ -763,7 +766,12 @@ CORE_SPECS: tuple[ObjectSpec, ...] = (
         kind="torch_puzzle",
         group="puzzle",
         label_pt="quebra-cabeça de tocha",
-        site_titles_pt=("Quebra-Cabeça de Tocha", "Fogueira/Tocha", "Braseiro da Ruína", "Tocha de Kresnik"),
+        site_titles_pt=(
+            "Quebra-Cabeça de Tocha",
+            "Fogueira/Tocha",
+            "Braseiro da Ruína",
+            "Tocha de Kresnik",
+        ),
         site_titles_en=("Torch Puzzle", "Campfire/Torch", "Ruin Brazier", "Kresnik's Torch"),
         radius_factor=1.3,
         cooldown=12.0,
@@ -967,7 +975,10 @@ def label_for_kind(kind: str, subtype: str | None = None) -> str:
 def radius_factor_for(kind: str, context: str | None = None) -> float:
     """Multiplicador de raio adequado ao tipo ou contexto da coleta."""
     if context and context in CATALOG:
-        return max(CATALOG[context].radius_factor, CATALOG.get(kind, ObjectSpec(kind, "", kind)).radius_factor)
+        return max(
+            CATALOG[context].radius_factor,
+            CATALOG.get(kind, ObjectSpec(kind, "", kind)).radius_factor,
+        )
     spec = CATALOG.get(kind)
     return spec.radius_factor if spec else 1.0
 

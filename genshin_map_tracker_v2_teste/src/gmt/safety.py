@@ -117,12 +117,14 @@ def audit_source_tree(package_dir: Path | None = None) -> SafetyReport:
             elif isinstance(node, ast.Attribute):
                 if node.attr in FORBIDDEN_WIN32_APIS:
                     violations.append(f"{rel}:{node.lineno} API proibida '{node.attr}'")
-            elif isinstance(node, ast.Name):
-                if node.id in FORBIDDEN_WIN32_APIS:
-                    violations.append(f"{rel}:{node.lineno} símbolo proibido '{node.id}'")
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                if node.value in FORBIDDEN_WIN32_APIS:
-                    violations.append(f"{rel}:{node.lineno} referência proibida '{node.value}'")
+            elif isinstance(node, ast.Name) and node.id in FORBIDDEN_WIN32_APIS:
+                violations.append(f"{rel}:{node.lineno} símbolo proibido '{node.id}'")
+            elif (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value in FORBIDDEN_WIN32_APIS
+            ):
+                violations.append(f"{rel}:{node.lineno} referência proibida '{node.value}'")
 
     loaded = sorted(FORBIDDEN_IMPORTS.intersection(k.split(".")[0] for k in sys.modules))
     for mod in loaded:

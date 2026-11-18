@@ -1,4 +1,4 @@
-"""Testes abrangentes para todos os objetos interativos, resolução em cascata e auditoria anti-ban."""
+"""Objetos interativos, resolução em cascata e auditoria anti-ban."""
 
 from __future__ import annotations
 
@@ -206,22 +206,52 @@ def test_chest_subtypes_blueprints_and_puzzle_contexts() -> None:
     assert (evs[0].kind, evs[0].certain, evs[0].subtype) == ("chest", True, "remarkable_chest")
 
 
-def test_mora_chest_detection_without_false_positives() -> None:
+def test_mora_rewards_from_real_sessions_are_not_mora_chests() -> None:
+    """Textos reais (sessões de 07 e 16/11): Mora alta depois de "Investigar" e "Selo Cryo"
+    nas recompensas de baú. Nenhum era Caixa de Mora; a versão anterior marcaria errado."""
     det = RegionScriptedDetector()
     f = np.zeros((1080, 1920, 3), np.uint8)
-
-    det.script = {"obtained": ["Mora x325"]}
+    det.script = {"prompt": ["Investigar", "Ativar"]}
     assert det.update(f, 0.0) == []
+    det.script = {"obtained": ["Obtido", "Recurso de Gelo Puro x5", "Morax15000"]}
+    assert det.update(f, 3.0) == []
+    det.script = {"obtained": ["Obtido", "Mora x 300", "seloCryox3"]}
+    assert det.update(f, 20.0) == []
+    det.script = {"obtained": ["Obtido", "Mora x10000"]}
+    assert det.update(f, 40.0) == []
 
-    det.script = {"obtained": ["Mora x10.000"]}
-    evs = det.update(f, 5.0)
-    assert [(e.kind, e.certain) for e in evs] == [("mora_chest", True)]
 
-    det.script = {"prompt": ["Investigar"]}
-    assert det.update(f, 15.0) == []
-    det.script = {"pickup": ["Selo Geo x2", "Mora x2.000"]}
-    evs = det.update(f, 16.5)
-    assert [(e.kind, e.certain) for e in evs] == [("mora_chest", True)]
+def test_buried_mora_is_only_a_suggestion() -> None:
+    det = RegionScriptedDetector()
+    f = np.zeros((1080, 1920, 3), np.uint8)
+    det.script = {"prompt": ["Escavar"]}
+    assert det.update(f, 0.0) == []
+    det.script = {"pickup": ["Mora x2.000"]}
+    evs = det.update(f, 2.0)
+    assert [(e.kind, e.certain) for e in evs] == [("mora_chest", False)]
+
+
+def test_recipe_inside_chest_rewards_is_not_a_map_collectable() -> None:
+    """Real (07/11): "Receita: Pão de Centeio Glupov" veio na lista de um baú."""
+    det = RegionScriptedDetector()
+    f = np.zeros((1080, 1920, 3), np.uint8)
+    det.script = {
+        "obtained": [
+            "Obtido", "Gema Essencial x 5", "Mora x300", "Selo Cryo x 2",
+            "Receita: Pao de Centeio Glupov x 1",
+        ]
+    }  # fmt: skip
+    assert [e.kind for e in det.update(f, 0.0)] == ["chest"]
+
+
+def test_sigil_counts_as_chest_drop_after_prompt() -> None:
+    det = RegionScriptedDetector()
+    f = np.zeros((1080, 1920, 3), np.uint8)
+    det.script = {"prompt": ["Bau Comum"]}
+    assert det.update(f, 0.0) == []
+    det.script = {"obtained": ["Selo Cryo x1"]}
+    evs = det.update(f, 1.0)
+    assert [(e.kind, e.certain) for e in evs] == [("chest", True)]
 
 
 def test_respawnables_toggle_specialties_minerals_fishing() -> None:
@@ -252,9 +282,7 @@ def test_cascading_resolver_rarity_and_puzzle_fallback() -> None:
     )
     cfg = ResolverConfig(radius=20.0)
 
-    r = resolve(
-        store, cfg, "chest", "teyvat", 100.2, 100.0, 0.9, subtype="chest_precious"
-    )
+    r = resolve(store, cfg, "chest", "teyvat", 100.2, 100.0, 0.9, subtype="chest_precious")
     assert r.decision == "mark" and r.marker is not None and r.marker.id == "c-precioso"
 
     r_puz = resolve(store, cfg, "chest", "teyvat", 501.0, 500.0, 0.9)
@@ -311,7 +339,13 @@ class MultiCategorySiteBrowser:
         }
 
     def nearby_site_markers(
-        self, gx: float, gy: float, zoom: int, radius: float, types: list[str], only_visible: bool = False
+        self,
+        gx: float,
+        gy: float,
+        zoom: int,
+        radius: float,
+        types: list[str],
+        only_visible: bool = False,
     ) -> list:  # type: ignore[type-arg]
         from gmt.web.browser import SiteMarker
 
@@ -363,9 +397,7 @@ def test_app_marks_teleport_precious_chest_and_prevents_challenge_double_mark(
         {
             8: [CollectEvent("teleport", True, 1.4, ("Ponto de Teleporte desbloqueado",))],
             11: [
-                CollectEvent(
-                    "chest", True, 2.0, ("Gema Essencial",), subtype="chest_precious"
-                ),
+                CollectEvent("chest", True, 2.0, ("Gema Essencial",), subtype="chest_precious"),
                 CollectEvent("time_trial", True, 2.0, ("Desafio Concluído",)),
             ],
             12: [CollectEvent("chest", True, 2.2, ("EXP do Aventureiro",))],
@@ -381,7 +413,7 @@ def test_app_marks_teleport_precious_chest_and_prevents_challenge_double_mark(
         browser=browser,
         store=MarkerStore(":memory:"),
         detector=events,
-        options=AppOptions(radius=5),
+        options=AppOptions(radius=5, auto_mark_experimental=True),
     )
     for i in range(12):
         app.step(make_game_frame(world, 1000.0 + 6 * i, 1000.0, seed=700 + i), i * 0.2)
@@ -402,7 +434,9 @@ def test_cli_categories_safety_and_config_validation(
     assert main(["seguranca"]) == 0
     assert "APROVADA" in capsys.readouterr().out
 
-    assert main(["categorias", "--testar", "Ponto de Teleporte desbloqueado", "Espato Lúmen x1"]) == 0
+    assert (
+        main(["categorias", "--testar", "Ponto de Teleporte desbloqueado", "Espato Lúmen x1"]) == 0
+    )
     out = capsys.readouterr().out
     assert "teleport" in out and "lumenspar" in out
 
@@ -413,3 +447,41 @@ def test_cli_categories_safety_and_config_validation(
     bad_cfg.write_text('[detect]\ncategories = ["categoria_inexistente"]\n', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(bad_cfg)
+
+
+def test_experimental_categories_are_only_suggested_by_default(
+    world: np.ndarray, index: MapIndex, tmp_path: Path
+) -> None:
+    """Padrão: teleporte/desafio (não conferidos em sessão real) só são destacados e
+    registrados; baú continua sendo marcado sozinho."""
+    ox, oy = 50_000.0, 80_000.0
+    browser = MultiCategorySiteBrowser(
+        [
+            ("tp-1", "o3", 1042 + ox, 1000 + oy, False),
+            ("bau-precioso-alvo", "o45", 1061 + ox, 1000 + oy, False),
+        ]
+    )
+    conv = TileConverter(browser, {"teyvat": TileLayer(zoom=14, origin_x=ox, origin_y=oy)})
+    events = StepEvents(
+        {
+            8: [CollectEvent("teleport", True, 1.4, ("Ponto de Teleporte desbloqueado",))],
+            11: [CollectEvent("chest", True, 2.0, ("Gema Essencial",), subtype="chest_precious")],
+        }
+    )
+    log = tmp_path / "incertos.log"
+    app = App(
+        Localizer([index]),
+        conv,
+        StatusConsole(io.StringIO()),
+        MinimapConfig(169, 125, 100),
+        browser=browser,
+        store=MarkerStore(":memory:"),
+        detector=events,
+        options=AppOptions(radius=5, uncertain_log=log),
+    )
+    for i in range(12):
+        app.step(make_game_frame(world, 1000.0 + 6 * i, 1000.0, seed=700 + i), i * 0.2)
+    marked_ids = [m for m, _ in browser.marked]
+    assert marked_ids == ["bau-precioso-alvo"]
+    assert "tp-1" in log.read_text(encoding="utf-8")
+    assert "categoria em teste" in log.read_text(encoding="utf-8")

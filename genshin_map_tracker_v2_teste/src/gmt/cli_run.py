@@ -107,9 +107,13 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
                 enabled_groups=cfg.detect.categories,
             )
             detector = ThreadedDetector(
-                CollectDetector(RapidOcr(), config=det_cfg, record_dir=cfg.capture.output_dir / "ocr")
+                CollectDetector(
+                    RapidOcr(), config=det_cfg, record_dir=cfg.capture.output_dir / "ocr"
+                )
             )
-            mode_txt = "permanentes + farmáveis" if include_respawn else "todos os objetos permanentes"
+            mode_txt = (
+                "permanentes + farmáveis" if include_respawn else "todos os objetos permanentes"
+            )
             console.info(f"detector ativo: {mode_txt}")
         except RuntimeError as exc:
             console.info(f"detecção de coleta desligada: {exc}")
@@ -134,6 +138,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
             uncertain_log=cfg.capture.output_dir / "incertos.log",
             puzzle_fallback=cfg.detect.puzzle_fallback,
             only_visible_on_site=cfg.detect.only_visible_on_site,
+            auto_mark_experimental=cfg.detect.auto_mark_experimental,
         ),
     )
     hotkey = GlobalHotkey(cfg.pause_hotkey, app.toggle_pause)
@@ -390,6 +395,7 @@ def cmd_categories(args: argparse.Namespace, _cfg: Config) -> int:
     from gmt.detect.events import CollectDetector, DetectorConfig
 
     if args.testar:
+
         class _StaticOcr:
             def __init__(self, lines: list[str]) -> None:
                 self._lines = lines
@@ -399,7 +405,9 @@ def cmd_categories(args: argparse.Namespace, _cfg: Config) -> int:
 
         det = CollectDetector(
             _StaticOcr([]),
-            DetectorConfig(include_respawnables=True, min_interval=0.0, cooldown=0.0, chest_cooldown=0.0),
+            DetectorConfig(
+                include_respawnables=True, min_interval=0.0, cooldown=0.0, chest_cooldown=0.0
+            ),
         )
         dummy = np.full((1080, 1920, 3), 50, np.uint8)
         for i, phrase in enumerate(args.testar):
@@ -446,7 +454,9 @@ def cmd_safety(_args: argparse.Namespace, _cfg: Config) -> int:
             print(f"  ! {v}")
         return 1
     print("  - Captura: somente imagem da área de trabalho (dxcam / mss, igual ao OBS).")
-    print("  - Memória/DLL/Rede: zero handle aberto no processo do jogo, zero injeção, zero sniffer.")
+    print(
+        "  - Memória/DLL/Rede: zero handle aberto no processo do jogo, zero injeção, zero sniffer."
+    )
     print("  - Entrada/Overlay: zero tecla/clique enviado ao jogo, zero janela sobreposta.")
     print("  - Automação: restrita ao navegador Chrome isolado no mapa web externo.")
     return 0
@@ -531,7 +541,9 @@ def register(sub: Any) -> dict[str, Any]:
     dt.add_argument("--out", default="ocr_textos.json")
 
     cats = sub.add_parser("categorias", help="lista objetos interativos suportados ou testa textos")
-    cats.add_argument("--all", action="store_true", help="mostra todas as especialidades e minérios")
+    cats.add_argument(
+        "--all", action="store_true", help="mostra todas as especialidades e minérios"
+    )
     cats.add_argument("--testar", nargs="+", help="testa classificação de frases simuladas de OCR")
 
     sub.add_parser("seguranca", help="executa auditoria anti-ban (zero injeção/memória/input)")
