@@ -1,0 +1,13 @@
+@echo off
+chcp 65001 >nul
+cd /d "%~dp0"
+if not exist .venv\Scripts\activate.bat (
+  echo Rode primeiro o instalar.bat
+  pause
+  exit /b 1
+)
+call .venv\Scripts\activate.bat
+echo Para encerrar: Ctrl+C. Se o Windows perguntar "Deseja finalizar", responda S.
+echo.
+gmt run
+pause

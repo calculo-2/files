@@ -1,0 +1,56 @@
+# Copie para config.toml e ajuste. Tudo é opcional: o que faltar usa o padrão.
+
+[capture]
+fps = 5              # 1 a 30. 5 já basta para rastrear; mais FPS = mais CPU.
+backend = "auto"     # "auto" (dxcam, cai para mss), "dxcam" ou "mss"
+output_dir = "out"
+
+[minimap]
+# Círculo do minimapa na resolução de referência 1920x1080.
+# Medido em prints reais 1920x1080 pela seta do jogador.
+# Para conferir/ajustar: `gmt calibrate print1.png print2.png ...`
+center_x = 169.0
+center_y = 125.0
+radius = 100.0
+
+# ---------------------------------------------------------------- Fases 3 a 6
+# As seções abaixo estão comentadas: tire o "#" do começo da linha para usar.
+
+# [site]
+# url = "https://genshin-impact-map.appsample.com/pt/"
+# profile = ".chrome-gmt"   # perfil do Chrome só do gmt: faça login no site nele uma vez
+# follow = true             # o mapa do site segue a sua posição
+# min_interval = 1.0        # segundos entre movimentos do mapa (ritmo humano)
+# min_pan_px = 40           # só move o mapa se você andou isso na tela
+# zoom = 5                  # zoom fixo ao seguir (sem esta linha: mantém o seu)
+# compact = true            # janela de aplicativo, sem abas nem barra de endereço
+# window = [1920, 0, 900, 1000]  # x, y, largura, altura (x=1920: começo do 2º monitor)
+# controls = true           # painel: Seguir-me/Soltar, zoom, status e último item marcado
+# mark_js = ""              # comando do site para marcar coletado; {id} = id do marcador
+
+# Uma seção [[maps]] por camada do mapa (Teyvat, subterrâneos...).
+# [[maps]]
+# layer = "teyvat"
+# image = "mapas/teyvat.png"
+# Ou calibração por pontos de teletransporte:
+# calibration = "mapas/teyvat_calibracao.json"
+# Ou, se o mapa foi montado com `gmt preparar-mapa` / `gmt tiles` (conversão exata):
+# tile_zoom = 14
+# tile_origin_x = 0
+# tile_origin_y = 0
+
+# [detect]
+# enabled = true               # detecta objetos interativos pela tela (OCR em 4 regiões)
+# radius = 0                   # raio de busca no site; 0 = automático e adaptativo por categoria
+# auto_mark = true             # false: nunca marca sozinho, só destaca para você confirmar
+# puzzle_fallback = true       # resolve Baús de Enigma/Seelies/Desafios quando abrir o baú final
+# include_respawnables = false # true: rastreia também Especialidades Locais, Minérios e Pesca
+# only_visible_on_site = false # true: ignora categorias desligadas na barra lateral do appsample
+# categories = []              # vazio = todas; ou filtre ex.: ["chest", "oculus", "offering", "waypoint", "puzzle", "mora", "collectable"]
+
+# [localization]
+# contornos = true    # false: volta à comparação antiga do minimapa (para comparar)
+
+# [general]
+# database = "out/progresso.db"
+# pause_hotkey = "ctrl+alt+p"
